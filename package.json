@@ -17,13 +17,28 @@
     "not ie <= 9"
   ],
   "main": "./target/js/okta-sign-in.js",
+  "tsd": {
+    "directory": "types",
+    "compilerOptions": {
+      "skipLibCheck": true,
+      "lib": [
+        "dom"
+      ],
+      "paths": {
+        "@okta/okta-signin-widget": [
+          "."
+        ]
+      }
+    }
+  },
+  "types": "./types/index.d.ts",
   "scripts": {
     "clean": "rimraf target && rimraf dist && rimraf build2",
     "generate-phone-codes": "node scripts/buildtools generate-phone-codes",
     "generate-config": "node scripts/buildtools generate-language-config",
     "update-readme": "node scripts/buildtools update-readme",
     "retirejs": "retire --jspath target/js --package",
-    "lint:eslint": "eslint .",
+    "lint:eslint": "eslint . --ext .js --ext .ts",
     "lint:eslint:report": "eslint -f checkstyle -o build2/OSW-eslint-checkstyle-result.xml . --quiet",
     "lint:stylelint": "stylelint assets/sass/",
     "lint:stylelint:report": "stylelint --custom-formatter node_modules/stylelint-checkstyle-formatter assets/sass/ > build2/OSW-stylelint-checkstyle-result.xml",
@@ -42,6 +57,7 @@
     "test:testcafe-run-en-leaks-ci": "yarn test -t testcafe -c 2 chrome:headless test/testcafe/spec-en-leaks/ --reporter xunit:build2/reports/junit/testcafe-results.xml",
     "test:enleaks-ci": "run-p -r test:testcafe-en-leaks-setup \"test:testcafe-run-en-leaks-ci\" -- 2>/dev/null",
     "test:enleaks": "run-p -r test:testcafe-en-leaks-setup \"test:testcafe-run-en-leaks\" -- 2>/dev/null",
+    "test:tsd": "tsd",
     "build:dev": "grunt build:dev",
     "build:release": "grunt build:release",
     "build:webpack-dev": "webpack --config webpack.dev.config.js",
@@ -65,8 +81,8 @@
     "@okta/eslint-plugin-okta": "0.5.0",
     "@okta/okta-auth-js": "^6.0.0",
     "@sindresorhus/to-milliseconds": "^1.0.0",
-    "@typescript-eslint/eslint-plugin": "^2.34.0",
-    "@typescript-eslint/parser": "^2.34.0",
+    "@typescript-eslint/eslint-plugin": "^4.16.1",
+    "@typescript-eslint/parser": "^4.16.1",
     "autoprefixer": "^9.6.1",
     "axios": "^0.21.1",
     "babel-eslint": "^10.1.0",
@@ -135,6 +151,7 @@
     "testcafe": "^1.14.2",
     "time-grunt": "^2.0.0",
     "ts-loader": "^9.2.6",
+    "typescript": "^4.2.2",
     "wait-on": "^3.3.0",
     "webdriver-manager": "^13.0.0",
     "webpack": "^5.51.1",
@@ -147,6 +164,7 @@
     "handlebars": "^4.5.3",
     "jasmine": "^4.0.1",
     "q": "1.4.1",
+    "tsd": "^0.14.0",
     "u2f-api-polyfill": "0.4.3",
     "underscore": "1.13.1"
   },
