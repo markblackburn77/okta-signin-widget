@@ -1,10 +1,26 @@
-/* global OktaSignIn */
 /* eslint no-console: 0 */
 
-import signinWidgetOptions from '../.widgetrc.js';
-import { assertNoEnglishLeaks } from '../playground/LocaleUtils';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const signinWidgetOptions = require('../.widgetrc.js'); // commonJS module
 
-let signIn;
+import OktaSignIn from '../types';
+import { assertNoEnglishLeaks } from '../playground/LocaleUtils';
+declare global {
+  interface Window {
+    // added by widget CDN bundle
+    OktaSignIn: typeof OktaSignIn;
+
+    // added in this file
+    getWidgetInstance: () => OktaSignIn;
+    renderPlaygroundWidget: (options: OktaSignIn.WidgetConfig) => void;
+  }
+}
+
+function isSuccessNonOIDC(res: OktaSignIn.RenderResult): res is OktaSignIn.RenderResultSuccessNonOIDCSession {
+  return (res as OktaSignIn.RenderResultSuccessNonOIDCSession).session !== undefined;
+}
+
+let signIn: OktaSignIn;
 
 function getWidgetInstance() {
   return signIn;
@@ -14,7 +30,7 @@ function createWidgetInstance(options = {}) {
   if (signIn) {
     signIn.remove();
   }
-  signIn = new OktaSignIn(Object.assign({}, signinWidgetOptions, options));
+  signIn = new window.OktaSignIn(Object.assign({}, signinWidgetOptions, options));
   return signIn;
 }
 
@@ -45,7 +61,7 @@ const renderPlaygroundWidget = (options = {}) => {
 
       // 1. Widget is not configured for OIDC, and returns a sessionToken
       //    that needs to be exchanged for an okta session
-      if (res.session) {
+      if (isSuccessNonOIDC(res)) {
         console.log(res.user);
         res.session.setCookieAndRedirect(signinWidgetOptions.baseUrl + '/app/UserHome');
         return;

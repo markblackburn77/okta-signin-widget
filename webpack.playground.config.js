@@ -35,7 +35,7 @@ module.exports = {
     level: 'warn',
   },
   entry: {
-    'playground.js': [`${PLAYGROUND}/main.js`]
+    'playground.js': [`${PLAYGROUND}/main.ts`]
   },
   output: {
     path: `${PLAYGROUND}`,
@@ -45,8 +45,17 @@ module.exports = {
     }
   },
   devtool: 'source-map',
+  resolve: {
+    // Add `.ts` and `.tsx` as a resolvable extension.
+    extensions: ['.ts', '.tsx', '.js']
+  },
   module: {
     rules: [
+      // all files with a `.ts` or `.tsx` extension will be handled by `ts-loader`
+      {
+        test: /\.tsx?$/,
+        loader: 'ts-loader'
+      },
       {
         test: /\.js$/,
         exclude: /node_modules/,
