@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "baseUrl": "./src",
+    "outDir": "./target/types",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "allowJs": true,
+    "checkJs": false,
+    "paths": {
+      "nls/*": ["../packages/@okta/i18n/src/json/*"],
+    }
+  },
+  "include": [
+    "types/**/*",
+    "src/**/*"
+  ],
+  "exclude": [
+    "types/index.test-d.ts",
+    "types/index.d.ts"
+  ],
+  "files": [
+    "src/widget/OktaSignIn.ts"
+  ]
+}

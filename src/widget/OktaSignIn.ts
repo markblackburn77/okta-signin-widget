@@ -8,6 +8,43 @@ import createRouter from 'widget/createRouter';
 import V1Router from 'LoginRouter';
 import V2Router from 'v2/WidgetRouter';
 import Hooks from 'models/Hooks';
+import {
+  WidgetOptions,
+  EventCallback,
+  EventCallbackWithError,
+  ShowSignInToGetTokensOptions,
+  ShowSignInAndRedirectOptions,
+  RenderElOptions,
+  RenderResult,
+  RenderError
+} from '../types';
+import { OktaAuth, Tokens } from '@okta/okta-auth-js';
+
+export interface OktaSignIn {
+  // constructor(config: WidgetConfig);
+
+  authClient: OktaAuth;
+
+  on(event: 'ready', callback: EventCallback): void;
+  on(event: 'afterError', callback: EventCallbackWithError): void;
+  on(event: 'afterRender', callback: EventCallback): void;
+
+  off(event?: 'ready', callback?: EventCallback): void;
+  off(event?: 'afterError', callback?: EventCallbackWithError): void;
+  off(event?: 'afterRender', callback?: EventCallback): void;
+
+  show(): void;
+  hide(): void;
+  remove(): void;
+
+  showSignInToGetTokens(options: ShowSignInToGetTokensOptions): Promise<Tokens>;
+  showSignInAndRedirect(options: ShowSignInAndRedirectOptions): Promise<void>;
+  renderEl(
+    options: RenderElOptions,
+    success?: (res: RenderResult) => void,
+    error?: (err: RenderError) => void
+  ): Promise<RenderResult>;
+}
 
 const EVENTS_LIST = ['ready', 'afterError', 'afterRender'];
 
@@ -129,7 +166,7 @@ var OktaSignIn = (function() {
    * @param success - success callback function
    * @param error - error callback function
    */
-  function OktaSignIn(options) {
+  function OktaSignIn(options: WidgetOptions) {
     Util.debugMessage(`
         The Okta Sign-In Widget is running in development mode.
         When you are ready to publish your app, embed the minified version to turn on production mode.
@@ -189,4 +226,4 @@ var OktaSignIn = (function() {
 
   return OktaSignIn;
 })();
-module.exports = OktaSignIn;
+export default OktaSignIn;

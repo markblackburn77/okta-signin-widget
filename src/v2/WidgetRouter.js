@@ -13,7 +13,7 @@
 import BaseLoginRouter from './BaseLoginRouter';
 import FormController from './controllers/FormController';
 
-module.exports = BaseLoginRouter.extend({
+export default BaseLoginRouter.extend({
   routes: {
     '': 'defaultAuth',
     '*wildcard': 'defaultAuth',

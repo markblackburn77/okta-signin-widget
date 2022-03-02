@@ -3,6 +3,7 @@ const { resolve } = require('path');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 const { BannerPlugin } = require('webpack');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 const PACKAGE_JSON = require('./package.json');
 
 const EMPTY = resolve(__dirname, 'src/empty');
@@ -23,9 +24,28 @@ const EXTERNAL_PATHS = [
   'okta-i18n-bundles'
 ];
 
+const babelExclude = function (filePath) {
+  const filePathContains = (f) => filePath.indexOf(f) > 0;
+  const npmRequiresTransform = [
+    '/node_modules/@okta/courage',
+  ].some(filePathContains);
+  const shallBeExcluded = [
+    '/node_modules/',
+  ].some(filePathContains);
+  return shallBeExcluded && !npmRequiresTransform;
+};
+
+const babelOptions = {
+  presets: [['@babel/preset-env', { modules: 'commonjs' }]],
+  plugins: [
+    '@okta/babel-plugin-handlebars-inline-precompile',
+    'add-module-exports'
+  ]
+};
+
 const webpackConfig = {
   mode: 'development',
-  entry: ['./src/CourageForSigninWidget.js'],
+  entry: ['./src/CourageForSigninWidget'],
   devtool: 'source-map',
   output: {
     // why the destination is outside current directory?
@@ -37,6 +57,8 @@ const webpackConfig = {
   },
   externals: EXTERNAL_PATHS,
   resolve: {
+    extensions: ['.js', '.ts'],
+    plugins: [new TsconfigPathsPlugin()],
     alias: {
 
       // jsons is from StringUtil
@@ -64,24 +86,27 @@ const webpackConfig = {
     rules: [
       {
         test: /\.js$/,
-        exclude: function (filePath) {
-          const filePathContains = (f) => filePath.indexOf(f) > 0;
-          const npmRequiresTransform = [
-            '/node_modules/@okta/courage',
-          ].some(filePathContains);
-          const shallBeExcluded = [
-            '/node_modules/',
-          ].some(filePathContains);
-          return shallBeExcluded && !npmRequiresTransform;
-        },
+        exclude: babelExclude,
         loader: 'babel-loader',
-        options: {
-          presets: [['@babel/preset-env', { modules: 'commonjs' }]],
-          plugins: [
-            '@okta/babel-plugin-handlebars-inline-precompile',
-            'add-module-exports'
-          ]
-        }
+        options: babelOptions
+      },
+      {
+        test: /\.ts$/,
+        exclude: babelExclude,
+        use: [
+          {
+            loader: 'babel-loader',
+            options: babelOptions
+          },
+          {
+            loader: 'ts-loader',
+            options: {
+              compilerOptions: {
+                noEmit: false
+              }
+            }
+          }
+        ]
       },
     ]
   },

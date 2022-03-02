@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "outDir": "../courage-dist/types",
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "allowJs": true,
+    "checkJs": false,
+    "paths": {
+      "vendor/*": ["node_modules/@okta/courage/src/vendor/*"],
+      "ConfirmationDialog": ["buildtools/ConfirmationDialog.ts"],
+      "okta-i18n-bundles": ["node_modules/@okta/courage/src/okta-i18n-bundles.js"],
+    }
+  },
+  "include": [
+    "types/**/*",
+    "src/**/*"
+  ],
+  "files": [
+    "src/CourageForSigninWidget.ts"
+  ]
+}

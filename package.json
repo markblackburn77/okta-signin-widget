@@ -68,7 +68,9 @@
     "start:dev-server": "echo \"DEPRECATED: Please run 'yarn start' instead.\" && exit 1",
     "start": "node scripts/buildtools start",
     "start:test:app": "yarn workspace @okta/test.app start",
-    "mock:device-authenticator": "dyson playground/mocks/spec-device-authenticator/ 6512"
+    "mock:device-authenticator": "dyson playground/mocks/spec-device-authenticator/ 6512",
+    "clean:types": "rimraf ./target/types",
+    "build:types": "tsc --noEmit false --declaration --emitDeclarationOnly"
   },
   "devDependencies": {
     "@babel/core": "^7.15.5",

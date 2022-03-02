@@ -1,5702 +1,10 @@
 /******/ (function() { // webpackBootstrap
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "./node_modules/@okta/courage/src/framework/Collection.js":
-/*!****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/framework/Collection.js ***!
-  \****************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var STATE = '__STATE__',
-    FETCH_DATA = 'FETCH_DATA',
-    PAGINATION_DATA = 'PAGINATION_DATA',
-    DEFAULT_PARAMS = 'DEFAULT_PARAMS',
-    LINK_BY_HEADER = 'LINK_BY_HEADER',
-    XHR = 'XHR';
-/*
- * Sets the next page URL on the collection from link headers
- * See: http://www.rfc-editor.org/rfc/rfc5988.txt
- *
- * This method is looking for a link header with `rel="next"`
- * An set's it as the next page's URL.
- *
- * If it doesn't find a next page, and current page is set by a link header
- * it assumes we are at the last page and deletes the current `next`
- */
-
-function setLinkHeadersPagination(collection, xhr) {
-  try {
-    var links = parseLinkHeader(xhr.getResponseHeader('link'));
-    collection[STATE].set(LINK_BY_HEADER, true);
-    collection.setPagination(links['next'].href);
-  } catch (e) {
-    if (collection[STATE].get(LINK_BY_HEADER)) {
-      collection.setPagination(null);
-    }
-  }
-}
-
-function parseQuery(url) {
-  var params = {},
-      rawQueryStr = url && url.split('?')[1],
-      queryString = rawQueryStr && decodeURIComponent(rawQueryStr.split('#')[0]).replace(/\+/g, ' '),
-      props = queryString ? queryString.split('&') : [];
-
-  for (var i = 0; i < props.length; i++) {
-    var parts = props[i].split('=');
-    params[parts.shift()] = parts.join('=');
-  }
-
-  return params;
-} // ################################################
-// # Source: https://gist.github.com/deiu/9335803
-// ################################################
-// unquote string (utility)
-
-
-function unquote(value) {
-  if (value.charAt(0) == '"' && value.charAt(value.length - 1) == '"') {
-    return value.substring(1, value.length - 1);
-  }
-
-  return value;
-}
-/*
-parse a Link header
-Link:<https://example.org/.meta>; rel=meta
-var r = parseLinkHeader(xhr.getResponseHeader('Link');
-r['meta']['href'] outputs https://example.org/.meta
-*/
-
-
-function parseLinkHeader(header) {
-  /* eslint max-statements: 0 */
-  var linkexp = /<[^>]*>\s*(\s*;\s*[^()<>@,;:"/[\]?={} \t]+=(([^()<>@,;:"/[\]?={} \t]+)|("[^"]*")))*(,|$)/g,
-      paramexp = /[^()<>@,;:"/[\]?={} \t]+=(([^()<>@,;:"/[\]?={} \t]+)|("[^"]*"))/g;
-  var matches = header.match(linkexp);
-  var rels = {};
-
-  for (var i = 0; i < matches.length; i++) {
-    var split = matches[i].split('>');
-    var href = split[0].substring(1);
-    var link = {};
-    link.href = href;
-    var s = split[1].match(paramexp);
-
-    for (var j = 0; j < s.length; j++) {
-      var paramsplit = s[j].split('=');
-      var name = paramsplit[0];
-      link[name] = unquote(paramsplit[1]);
-    }
-
-    if (link.rel !== undefined) {
-      rels[link.rel] = link;
-    }
-  }
-
-  return rels;
-} // ################################################
-// # /Source
-// ################################################
-//
-
-/**
- *
- * Archer.Collection is a standard [Backbone.Collection](http://backbonejs.org/#Collection) with pre-set `data`
- * parameters and built in pagination - works with [http link headers](https://tools.ietf.org/html/rfc5988)
- * out of the box:
- *
- * @class src/framework/Collection
- * @extends external:Backbone.Collection
- * @example
- * var Users = Archer.Collection.extend({
- *   url: '/api/v1/users'
- *   params: {expand: true}
- * });
- * var users = new Users(null, {params: {type: 'new'}}),
- *     $button = this.$('a.fetch-more');
- *
- * $button.click(function () {
- *   users.fetchMore();
- * });
- *
- * this.listenTo(users, 'sync', function () {
- *   $button.toggle(users.hasMore());
- * });
- *
- * collection.fetch(); //=> '/api/v1/users?expand=true&type=new'
- */
-
-
-var Collection = _backbone.default.Collection.extend(
-/** @lends src/framework/Collection.prototype */
-{
-  /**
-   * Default fetch parameters
-   * @type {Object|Function}
-   */
-  params: {},
-  constructor: function constructor(models, options) {
-    var state = new _backbone.default.Model();
-
-    var defaultParams = _underscoreWrapper.default.defaults(options && options.params || {}, _underscoreWrapper.default.result(this, 'params') || {});
-
-    state.set(DEFAULT_PARAMS, defaultParams);
-    this[STATE] = state; // Adds support for child class to convert to ES6 Class.
-    // After conversion, `this.model` has to be a pure function to return Model Class.
-    // The changes below is trying to distinguish the ambiguity between a Class and normal function,
-    // as both are JavaScript function essentially.
-    // There are three ways to define class for `this.model`
-    // 1. Object properties: `model: BaseModel.extend({..})`
-    // 2. Function constructor:
-    // See example from
-    // - appversions/src/models/CustomType.js
-    // - appversions/src/models/EnumType.js
-    // - appversions/src/models/SignOnMode.js
-    // - authn-factors/src/models/Feature.js
-    // - shared/src/models/SamlAttribute.js
-    // 3. Function that returns a class.
-    //    model: function() { return BaseModel.extend({..}); }
-    //
-    // option 1 and 2 exists in code base today
-    // option 3 is introduced to support child class to convert to ES6 class.
-    // TODO: think of remove following check
-    // The reason for `this.model !== Backbone.Model` is because `this.model` is default to `Backbone.Model`
-    // set at Backbone.Collection.
-
-    if (_underscoreWrapper.default.isFunction(this.model) && this.model.length === 0 && this.model.isCourageModel !== true) {
-      this.model = _underscoreWrapper.default.result(this, 'model');
-    }
-
-    _backbone.default.Collection.apply(this, arguments);
-  },
-
-  /**
-   * See [Backbone Collection.sync](http://backbonejs.org/#Collection-sync).
-   */
-  sync: function sync(method, collection, options) {
-    var self = this,
-        success = options.success;
-
-    options.success = function (resp, status, xhr) {
-      // its important to set the pagination data *before* we call the success callback
-      // because we want the pagination data to be ready when the collection triggers the `sync` event
-      setLinkHeadersPagination(self, xhr);
-      success.apply(null, arguments);
-    };
-
-    return _backbone.default.Collection.prototype.sync.call(this, method, collection, options);
-  },
-
-  /**
-   * See [Backbone Collection.fetch](http://backbonejs.org/#Collection-fetch).
-   */
-  fetch: function fetch(options) {
-    options || (options = {});
-    var state = this[STATE],
-        xhr = state.get(XHR);
-    options.data = _underscoreWrapper.default.extend({}, state.get(DEFAULT_PARAMS), options.data || {});
-    options.fromFetch = true;
-    state.set(FETCH_DATA, options.data);
-
-    if (xhr && xhr.abort && options.abort !== false) {
-      xhr.abort();
-    }
-
-    xhr = _backbone.default.Collection.prototype.fetch.call(this, options);
-    state.set(XHR, xhr);
-    return xhr;
-  },
-
-  /**
-   * Set pagination data to get to the next page
-   * @param {Mixed} params
-   * @param {Object} [options]
-   * @param {Boolean} [options.fromFetch] should we include data from the previous fetch call in this object
-   * @example
-   * collection.setPagination({q: 'foo', page: '2'}); //=> {q: 'foo', page: '2'}
-   *
-   * collection.setPagination('/path/to/resource?q=baz&page=4'); //=> {q: 'baz', page: '4'}
-   *
-   * collection.setPagination('/path/to/resource'); //=> {}
-   *
-   * collection.fetch({data: {q: 'foo'}});
-   * collection.setPagination({page: 2}, {fromFetch: true}); //=> {q: 'foo', page: 2}
-   *
-   * any "falsy" value resets pagination
-   * collection.setPagination(); //=> {}
-   * collection.setPagination(null); //=> {}
-   * collection.setPagination(false); //=> {}
-   * collection.setPagination(''); //=> {}
-   * collection.setPagination(0); //=> {}
-   * @protected
-   */
-  setPagination: function setPagination(params, options) {
-    /* eslint complexity: [2, 8] */
-    if (_underscoreWrapper.default.isString(params) && params) {
-      params = parseQuery(params);
-    }
-
-    if (!_underscoreWrapper.default.isObject(params) || _underscoreWrapper.default.isArray(params) || !_underscoreWrapper.default.size(params)) {
-      params = null;
-    } else if (options && options.fromFetch) {
-      params = _underscoreWrapper.default.extend({}, this.getFetchData(), params);
-    }
-
-    this[STATE].set(PAGINATION_DATA, params);
-  },
-
-  /**
-   * Returns the `data` parameters applied in th most recent `fetch` call
-   * It will include parameters set by {@link #params} and optios.params passed to the constructor
-   * @return {Object}
-   * @protected
-   */
-  getFetchData: function getFetchData() {
-    return this[STATE].get(FETCH_DATA) || {};
-  },
-
-  /**
-   * Data object for constructing a request to fetch the next page
-   * @return {Object}
-   * @protected
-   */
-  getPaginationData: function getPaginationData() {
-    return this[STATE].get(PAGINATION_DATA) || {};
-  },
-
-  /**
-   * Does this collection have more data on the server (e.g is there a next "page")
-   * @return {Boolean}
-   */
-  hasMore: function hasMore() {
-    return _underscoreWrapper.default.size(this.getPaginationData()) > 0;
-  },
-
-  /**
-   * Get the next page from the server
-   * @return {Object} xhr returned by {@link #fetch}
-   */
-  fetchMore: function fetchMore() {
-    if (!this.hasMore()) {
-      throw new Error('Invalid Request');
-    }
-
-    return this.fetch({
-      data: this.getPaginationData(),
-      add: true,
-      remove: false,
-      update: true
-    });
-  },
-
-  /**
-   * See [Backbone Collection.reset](http://backbonejs.org/#Collection-reset).
-   */
-  reset: function reset(models, options) {
-    options || (options = {}); // only reset the pagination when reset is being called explicitly.
-    // this is to avoid link headers pagination being overriden and reset when
-    // fetching the collection using `collection.fetch({reset: true})`
-
-    if (!options.fromFetch) {
-      this.setPagination(null);
-    }
-
-    return _backbone.default.Collection.prototype.reset.apply(this, arguments);
-  },
-  // we want "where" to be able to search through derived properties as well
-  where: function where(attrs, first) {
-    if (_underscoreWrapper.default.isEmpty(attrs)) {
-      return first ? void 0 : [];
-    }
-
-    return this[first ? 'find' : 'filter'](function (model) {
-      for (var key in attrs) {
-        if (attrs[key] !== model.get(key)) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  },
-
-  /**
-   * See [Backbone Collection.create](http://backbonejs.org/#Collection-create).
-   */
-  create: function create(model, options) {
-    options || (options = {});
-
-    if (!_underscoreWrapper.default.result(model, 'urlRoot')) {
-      options.url = _underscoreWrapper.default.result(this, 'url');
-    }
-
-    return _backbone.default.Collection.prototype.create.call(this, model, options);
-  }
-});
-/**
- * It's used for distinguishing the ambiguity from _.isFunction()
- * which returns True for both a JavaScript Class constructor function
- * and normal function. With this flag, we can tell a function is actually
- * a Collection Class.
- * This flag is added in order to support the type of a parameter can be
- * either a Class or pure function that returns a Class.
- */
-
-
-Collection.isCourageCollection = true;
-var _default = Collection;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/framework/ListView.js":
-/*!**************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/framework/ListView.js ***!
-  \**************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _View = _interopRequireDefault(__webpack_require__(/*! ./View */ "./node_modules/@okta/courage/src/framework/View.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint-disable max-statements */
-
-/**
-   * Archer.ListView is a {@link src/framework/View} that operates on a
-   * collection and builds a list of "things" of the same type.
-   *
-   * Automagically adds, removes and sorts upon standard collection events.
-   *
-   * Listen to collection events so the ListView will do the right thing when
-   * a model is added or the collection is reset or sorted.
-   *
-   * @class src/framework/ListView
-   * @extends src/framework/View
-   * @param {Object} options options hash
-   * @param {Object} options.collection The collection which this view operates on
-   * @example
-   * var UserList = Archer.ListView.extend({
-   *   tagName: 'ul',
-   *   item: '<li>{{fname}} {{lname}}</li>'
-   * });
-   *
-   * var users = new Archer.Collection([
-   *   {fname: 'John', lname: 'Doe'},
-   *   {fname: 'Jane', lname: 'Doe'}
-   * ]);
-   *
-   * var userList = new UserList({collection: users}).render();
-   * userList.el; //=> "<ul><li>John Doe</li><li>Jane Doe</li></ul>"
-   *
-   * users.push({fname: 'Jim', lname: 'Doe'});
-   * userList.el; //=> "<ul><li>John Doe</li><li>Jane Doe</li><li>Jim Doe</li></ul>"
-   *
-   * users.first().destroy();
-   * userList.el; //=> "<ul><li>Jane Doe</li><li>Jim Doe</li></ul>"
-   */
-var _default = _View.default.extend(
-/** @lends src/framework/ListView.prototype */
-{
-  constructor: function constructor() {
-    _View.default.apply(this, arguments);
-
-    if (!this.collection) {
-      throw new Error('Missing collection');
-    }
-
-    this.listenTo(this.collection, 'reset sort', this.reset);
-    this.listenTo(this.collection, 'add', this.addItem);
-
-    if (this.fetchCollection) {
-      this.collection.fetch();
-    } else {
-      this.collection.each(this.addItem, this);
-    }
-  },
-
-  /**
-     * The view/template we will use to render each model in the collection.
-     * @type {String|module:Okta.View}
-     */
-  item: null,
-
-  /**
-     * A selector in the local template where to append each item
-     * @type {String}
-     */
-  itemSelector: null,
-
-  /**
-     * Empty the list and re-add everything from the collection.
-     * Usefull for handling `collection.reset()` or for handling the initial load
-     * @protected
-     */
-  reset: function reset() {
-    var _this = this;
-
-    this.removeChildren();
-    this.collection.each(function (model, index) {
-      _this.addItem(model, index);
-    });
-    return this;
-  },
-
-  /**
-     * Add an item view to the list that will represent one model from the collection
-     *
-     * Listen to the model so when it is destoyed or removed from the collection
-     * this item will remove itself from the list
-     *
-     * @param {Backbone.Model} model The model this row operates on
-     * @protected
-     */
-  addItem: function addItem(model) {
-    var view = this.add(this.item, this.itemSelector, {
-      options: {
-        model: model
-      }
-    }).last();
-
-    if (this.state && this.state.get('trackItemAdded')) {
-      this.state.trigger('itemAdded', view);
-    }
-
-    view.listenTo(model, 'destroy remove', view.remove);
-    return this;
-  },
-  addShowMore: _underscoreWrapper.default.noop
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/framework/Model.js":
-/*!***********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/framework/Model.js ***!
-  \***********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
-
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ../util/Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
-
-/**
-   * Archer.Model is a standard [Backbone.Model](http://backbonejs.org/#Model) with a few additions:
-   *
-   * - {@link src/framework/Model#derived Derived properties}
-   * - {@link src/framework/Model#props Built in schema validation}
-   * - {@link src/framework/Model#local Private properties (with schema validation)}
-   * - {@link src/framework/Model#flat Flattening of nested objects}
-   *
-   * Both derived and private properties are filtered out when sending the data to the server.
-   *
-   * See [Backbone.Model](http://backbonejs.org/#Model-constructor).
-   *
-   * @class src/framework/Model
-   * @extends external:Backbone.Model
-   * @param {Object} [attributes] - Initial model attributes (data)
-   * @param {Object} [options] - Options hash
-   * @example
-   * var Person = Archer.Model.extend({
-   *   props: {
-   *     'fname': 'string',
-   *     'lname': 'string'
-   *   },
-   *   local: {
-   *     isLoggedIn: 'boolean'
-   *   },
-   *   derived: {
-   *     name: {
-   *       deps: ['fname', 'lname'],
-   *       fn: function (fname, lname) {
-   *         return fname + ' ' + lname;
-   *       }
-   *     }
-   *   }
-   * });
-   * var model = new Person({fname: 'Joe', lname: 'Doe'});
-   * model.get('name'); //=> "Joe Doe"
-   * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
-   *
-   * model.set('isLoggedIn', true);
-   * model.get('isLoggedIn'); //=> true
-   * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
-   */
-var Model;
-
-function flatten(value, objectTypeFields, key, target) {
-  var filter = _underscoreWrapper.default.contains(objectTypeFields, key);
-
-  target || (target = {});
-
-  if (!filter && _underscoreWrapper.default.isObject(value) && !_underscoreWrapper.default.isArray(value) && !_underscoreWrapper.default.isFunction(value)) {
-    _underscoreWrapper.default.each(value, function (val, i) {
-      flatten(val, objectTypeFields, key ? key + '.' + i : i, target);
-    });
-  } // Case where target is an empty object. Guard against returning {undefined: undefined}.
-  else if (key !== undefined) {
-    target[key] = value;
-  }
-
-  return target;
-}
-
-function unflatten(data) {
-  _underscoreWrapper.default.each(data, function (value, key, data) {
-    if (key.indexOf('.') == -1) {
-      return;
-    }
-
-    var part,
-        ref = data,
-        parts = key.split('.');
-
-    while ((part = parts.shift()) !== undefined) {
-      if (!ref[part]) {
-        ref[part] = parts.length ? {} : value;
-      }
-
-      ref = ref[part];
-    }
-
-    delete data[key];
-  });
-
-  return data;
-}
-
-function createMessage(field, msg) {
-  var obj = {};
-  obj[field.name] = msg;
-  return obj;
-}
-
-function normalizeSchemaDef(field, name) {
-  var target;
-
-  if (_underscoreWrapper.default.isString(field)) {
-    target = {
-      type: field
-    };
-  } else if (_underscoreWrapper.default.isArray(field)) {
-    target = {
-      type: field[0],
-      required: field[1],
-      value: field[2]
-    };
-  } else {
-    target = _underscoreWrapper.default.clone(field);
-  }
-
-  _underscoreWrapper.default.defaults(target, {
-    required: false,
-    name: name
-  });
-
-  return target;
-}
-
-function capitalize(string) {
-  return string.toLowerCase().replace(/\b[a-z]/g, function (letter) {
-    return letter.toUpperCase();
-  });
-}
-
-function _validateRegex(value, pattern, error) {
-  if (!pattern.test(value)) {
-    return error;
-  }
-}
-
-var StringFormatValidators = {
-  /*eslint max-len: 0 */
-  email: function email(value) {
-    // Taken from  http://emailregex.com/ on 2017-03-06.
-    var pattern = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_EMAIL);
-  },
-  uri: function uri(value) {
-    // source: https://mathiasbynens.be/demo/url-regex
-    var pattern = /^(?:(?:https?|ftp):\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)(?:\.(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)*(?:\.(?:[a-z\u00a1-\uffff]{2,}))\.?)(?::\d{2,5})?(?:[/?#]\S*)?$/i;
-    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_URI);
-  },
-  ipv4: function ipv4(value) {
-    // source: https://www.safaribooksonline.com/library/view/regular-expressions-cookbook/9780596802837/ch07s16.html
-    var pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_IPV4);
-  },
-  hostname: function hostname(value) {
-    // source: http://www.regextester.com/23
-    var pattern = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])$/;
-    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_HOSTNAME);
-  }
-};
-
-function validateStringFormat(field, value) {
-  var validator = StringFormatValidators[field.format];
-
-  if (field.format && !validator) {
-    throw new TypeError(field.format + ' is not a supported string format');
-  }
-
-  return validator && validator(value);
-}
-
-function validateString(field, value) {
-  var createMessageWith = _underscoreWrapper.default.partial(createMessage, field),
-      invalidFormat = validateStringFormat(field, value);
-
-  if (invalidFormat) {
-    return createMessageWith(invalidFormat);
-  }
-
-  if (value && field.minLength && value.length < field.minLength) {
-    return createMessageWith(Model.ERROR_STRING_STRING_MIN_LENGTH, value.length);
-  }
-
-  if (value && field.maxLength && value.length > field.maxLength) {
-    return createMessageWith(Model.ERROR_STRING_STRING_MAX_LENGTH, value.length);
-  }
-}
-
-function _validateField(field, value) {
-  /* eslint complexity: [2, 25], max-statements: [2, 27] */
-  var createMessageWith = _underscoreWrapper.default.partial(createMessage, field),
-      isDefined = !_underscoreWrapper.default.isUndefined(value) && !_underscoreWrapper.default.isNull(value),
-      checkType,
-      errorMessage; // If using an array validator, perform the validation
-
-
-  if (Array.isArray(field.validate)) {
-    var output = [];
-    var foundError = false;
-
-    var _result;
-
-    field.validate.forEach(function (item) {
-      if (!value) {
-        _result = false;
-      } else {
-        switch (item.type.toLowerCase()) {
-          case 'regex':
-            _result = new RegExp(item.value.pattern, item.value.flags || '').test(value);
-            break;
-
-          default:
-            _result = false;
-        }
-      } // Append the result.
-
-
-      foundError = foundError || !_result;
-      output.push({
-        // eslint-disable-next-line no-prototype-builtins
-        message: item.hasOwnProperty('message') ? item.message : '',
-        passed: _result
-      });
-    });
-
-    if (foundError) {
-      return createMessageWith(output);
-    }
-
-    return;
-  } // check required fields
-
-
-  if (field.required && (!isDefined || _underscoreWrapper.default.isNull(value) || value === '')) {
-    return createMessageWith(Model.ERROR_BLANK);
-  } // check type
-
-
-  checkType = _underscoreWrapper.default['is' + capitalize(field.type)];
-
-  if (isDefined && field.type != 'any' && (!_underscoreWrapper.default.isFunction(checkType) || !checkType(value))) {
-    return createMessageWith(Model.ERROR_WRONG_TYPE);
-  } // validate string format
-
-
-  if (value && field.type == 'string') {
-    var error = validateString(field, value);
-
-    if (error) {
-      return error;
-    }
-  } // check pre set values (enum)
-
-
-  if (isDefined && field.values && !_underscoreWrapper.default.contains(field.values, value)) {
-    return createMessageWith(Model.ERROR_NOT_ALLOWED);
-  } // check validate method
-
-
-  if (_underscoreWrapper.default.isFunction(field.validate)) {
-    var result = field.validate(value);
-
-    if (_underscoreWrapper.default.isString(result) && result) {
-      return createMessageWith(result);
-    } else if (result === false) {
-      return createMessageWith(Model.ERROR_INVALID);
-    }
-  } // check array items
-
-
-  if (isDefined && field.type == 'array' && (errorMessage = validateArrayField(field, value))) {
-    return createMessageWith(errorMessage);
-  }
-}
-
-function validateArrayField(field, arr) {
-  if (field.minItems && arr.length < field.minItems) {
-    return 'model.validation.field.array.minItems';
-  } else if (field.maxItems && arr.length > field.maxItems) {
-    return 'model.validation.field.array.maxItems';
-  } else if (field.uniqueItems && arr.length > _underscoreWrapper.default.uniq(arr).length) {
-    return Model.ERROR_IARRAY_UNIQUE;
-  } else if (field.items) {
-    /* eslint max-depth: [2, 3] */
-    var arrayField = normalizeSchemaDef(field.items, 'placeholder');
-
-    for (var i = 0; i < arr.length; i++) {
-      var value = arr[i];
-
-      var error = _validateField(arrayField, value);
-
-      if (error) {
-        return error['placeholder'];
-      }
-    }
-  }
-}
-
-Model = _backbone.default.Model.extend(
-/** @lends src/framework/Model.prototype */
-{
-  /**
-     * Pass props as an object to extend, describing the observable properties of your model. The props
-     * properties should not be set on an instance, as this won't define new properties, they should only be passed to
-     * extend.
-     * Properties can be defined in three different ways:
-     *
-     * - As a string with the expected dataType. One of string, number, boolean, array, object, date, or any.
-     * Eg: `name: 'string'`.
-     * - An array of `[dataType, required, default]`
-     * - An object `{type: 'string', format: '', required: true, value: '', values: [], validate: function() {}`
-     *   - `value` will be the value that the property will be set to if it is undefined, either by not being set during
-     *   initialization, or by being explicitly set to undefined.
-     *   - `format` is a json-schame derived string format. Supported formats are: `email`, `uri`, `hostname` and `ipv4`.
-     *   - If `required` is true, one of two things will happen. If a default is set for the property, the property will
-     *   start with that value. If a default is not set for the property, validation will fail
-     *   - If `values` array is passed, then you'll be able to change a property to one of those values only.
-     *   - If `validate` is defined, it should return false or a custom message string when the validation fails.
-     *   - If the type is defined as `array`, the array elements could be defined by `minItems` (Number),
-     *   `uniqueItems` (Boolean) and `items` (a field definition such as this one that will validate each array member)
-     *   To the `validate` method
-     *   - Trying to set a property to an invalid type will raise an exception.
-     *
-     * @type {Mixed|Function}
-     * @example
-     * var Person = Model.extend({
-     *   props: {
-     *     name: 'string',
-     *     age: 'number',
-     *     paying: ['boolean', true, false], //required attribute, defaulted to false
-     *     type: {
-     *       type: 'string',
-     *       values: ['regular-hero', 'super-hero', 'mega-hero']
-     *     },
-     *     likes: {
-     *       type: 'string',
-     *       validate: function (value) {
-     *         return /^[\w]+ing$/.test(value)
-     *       }
-     *     }
-     *   }
-     * });
-     */
-  props: {},
-
-  /**
-     * Derived properties (also known as computed properties) are properties of the model that depend on the
-     * other (props, local or even derived properties to determine their value. Best demonstrated with an example:
-     *
-     * Each derived property, is defined as an object with the current properties:
-     *
-     * - `deps` {Array} - An array of property names which the derived property depends on.
-     * - `fn` {Function} - A function which returns the value of the computed property. It is called in the context of
-     * the current object, so that this is set correctly.
-     * - `cache` {Boolean} -  - Whether to cache the property. Uncached properties are computed every time they are
-     * accessed. Useful if it depends on the current time for example. Defaults to `true`.
-     *
-     * Derived properties are retrieved and fire change events just like any other property. They cannot be set
-     * directly.
-     * @type {Object|Function}
-     * @example
-     * var Person = Model.extend({
-     *   props: {
-     *     firstName: 'string',
-     *     lastName: 'string'
-     *   },
-     *   derived: {
-     *     fullName: {
-     *       deps: ['firstName', 'lastName'],
-     *       fn: function (firstName, lastName) {
-     *         return firstName + ' ' + lastName;
-     *       }
-     *     }
-     *   }
-     * });
-     *
-     * var person = new Person({ firstName: 'Phil', lastName: 'Roberts' })
-     * console.log(person.get('fullName')) //=> "Phil Roberts"
-     *
-     * person.set('firstName', 'Bob');
-     * console.log(person.get('fullName')) //=> "Bob Roberts"
-     */
-  derived: {},
-
-  /**
-     * local properties are defined and work in exactly the same way as {@link src/framework/Model#props|props}, but generally only exist for
-     * the lifetime of the page.
-     * They would not typically be persisted to the server, and are not returned by calls to {@link src/framework/Model#toJSON|toJSON}.
-     *
-     * @type {Object|Function}
-     * @example
-     * var Person = Model.extend({
-     *   props: {
-     *     name: 'string',
-     *   },
-     *   local: {
-     *     isLoggedIn: 'boolean'
-     *   }
-     * );
-     */
-  local: {},
-
-  /**
-     * Flatten the payload into dot notation string keys:
-     *
-     * @type {Boolean|Function}
-     * @example
-     * var Person = Model.extend({
-     *   props: {
-     *     'profile.fname': 'string',
-     *     'profile.lname': 'string',
-     *     'profile.languages': 'object'
-     *   },
-     *   flat: true
-     * });
-     * var person = new Person({'profile': {
-     *                            'fname': 'John',
-     *                            'lname': 'Doe',
-     *                            'languages': {name: "English", value: "EN"}
-     *                         }}, {parse: true});
-     * person.get('profile'); //=> undefined
-     * person.get('profile.fname'); //=> 'John'
-     * person.get('profile.lname'); //=> 'Doe'
-     * person.get('profile.languages'); //=> {name: "English", value: "EN"}
-     * person.get('profile.languages.name'); //=> undefined
-     * person.toJSON(); //=> {'profile': {'fname': 'John'} }
-     */
-  flat: true,
-
-  /**
-     * @deprecated
-     * @alias Backbone.Model#defaults
-     */
-  defaults: {},
-  constructor: function constructor(options) {
-    this.options = options || {};
-    var schema = this['__schema__'] = {},
-        objectTypeFields = [];
-    schema.computedProperties = {};
-    schema.props = _underscoreWrapper.default.clone(_underscoreWrapper.default.result(this, 'props') || {});
-    schema.derived = _underscoreWrapper.default.clone(_underscoreWrapper.default.result(this, 'derived') || {});
-    schema.local = _underscoreWrapper.default.clone(_underscoreWrapper.default.result(this, 'local') || {});
-    var defaults = {};
-
-    _underscoreWrapper.default.each(_underscoreWrapper.default.extend({}, schema.props, schema.local), function (options, name) {
-      var schemaDef = normalizeSchemaDef(options, name);
-
-      if (!_underscoreWrapper.default.isUndefined(schemaDef.value)) {
-        defaults[name] = schemaDef.value;
-      }
-
-      if (schemaDef.type === 'object') {
-        objectTypeFields.push(name);
-      }
-    }, this);
-
-    if (_underscoreWrapper.default.size(defaults)) {
-      var localDefaults = _underscoreWrapper.default.result(this, 'defaults');
-
-      this.defaults = function () {
-        return _underscoreWrapper.default.defaults({}, defaults, localDefaults);
-      };
-    } // override `validate`
-
-
-    this.validate = _underscoreWrapper.default.wrap(this.validate, function (validate) {
-      var args = _underscoreWrapper.default.rest(arguments),
-          res = _underscoreWrapper.default.extend(this._validateSchema.apply(this, args), validate.apply(this, args));
-
-      return _underscoreWrapper.default.size(res) && res || undefined;
-    }); // override `parse`
-
-    this.parse = _underscoreWrapper.default.wrap(this.parse, function (parse) {
-      var target = parse.apply(this, _underscoreWrapper.default.rest(arguments));
-
-      if (_underscoreWrapper.default.result(this, 'flat')) {
-        target = flatten(target, objectTypeFields);
-      }
-
-      return target;
-    });
-
-    _backbone.default.Model.apply(this, arguments);
-
-    _underscoreWrapper.default.each(schema.derived, function (options, name) {
-      schema.computedProperties[name] = this.__getDerivedValue(name); // set initial value;
-
-      var deps = options.deps || [];
-
-      if (deps.length) {
-        this.on('cache:clear change:' + deps.join(' change:'), function () {
-          var value = this.__getDerivedValue(name);
-
-          if (value !== schema.computedProperties[name]) {
-            schema.computedProperties[name] = value;
-            this.trigger('change:' + name, this, value);
-          }
-        }, this);
-      }
-    }, this);
-
-    this.on('sync', function () {
-      this.__syncedData = this.toJSON();
-    }, this);
-  },
-  validate: function validate() {},
-
-  /**
-     * Check if the schema settings allow this field to exist in the model
-     * @param  {String} key
-     * @return {Boolean}
-     */
-  allows: function allows(key) {
-    var schema = this['__schema__'],
-        all = _underscoreWrapper.default.extend({}, schema.props, schema.local);
-
-    if (!_underscoreWrapper.default.has(all, key)) {
-      _Logger.default.warn('Field not defined in schema', key);
-    }
-
-    return true;
-  },
-
-  /**
-     * Returns the schema for the specific property
-     *
-     * @param propName - The name of the property
-     * @returns {*} | null
-     */
-  getPropertySchema: function getPropertySchema(propName) {
-    var schema = this['__schema__'];
-    return _underscoreWrapper.default.reduce([schema.props, schema.local], function (result, options) {
-      return result || normalizeSchemaDef(options[propName], propName);
-    }, null);
-  },
-  set: function set(key, val) {
-    var attrs;
-
-    if (_typeof(key) === 'object') {
-      attrs = key;
-    } else {
-      (attrs = {})[key] = val;
-    } // Don't override a computed properties
-
-
-    _underscoreWrapper.default.each(attrs, function (value, key) {
-      if (_underscoreWrapper.default.has(this['__schema__'].derived, key)) {
-        throw 'overriding derived properties is not supported: ' + key;
-      }
-    }, this); // Schema validation
-
-
-    var errorFields = [];
-
-    _underscoreWrapper.default.each(attrs, function (value, key) {
-      this.allows(key) || errorFields.push(key);
-    }, this);
-
-    if (errorFields.length) {
-      throw 'field not allowed: ' + errorFields.join(', ');
-    }
-
-    return _backbone.default.Model.prototype.set.apply(this, arguments);
-  },
-  get: function get(attr) {
-    var schema = this['__schema__'];
-
-    if (_underscoreWrapper.default.has(schema.derived, attr)) {
-      if (schema.derived[attr].cache !== false) {
-        return schema.computedProperties[attr];
-      } else {
-        return this.__getDerivedValue(attr);
-      }
-    }
-
-    return _backbone.default.Model.prototype.get.apply(this, arguments);
-  },
-
-  /**
-     * Return a shallow copy of the model's attributes for JSON stringification.
-     * This can be used for persistence, serialization, or for augmentation before being sent to the server.
-     * The name of this method is a bit confusing, as it doesn't actually return a JSON string —
-     * but I'm afraid that it's the way that the JavaScript API for JSON.stringify works.
-     *
-     * See [Backbone.Model.toJSON](http://backbonejs.org/#Model-toJSON)
-     *
-     * @param  {Object} options
-     * @return {Object}
-     * @example
-     * var artist = new Model({
-     *   firstName: 'Wassily',
-     *   lastName: 'Kandinsky'
-     * });
-     *
-     * artist.set({birthday: 'December 16, 1866'});
-     * JSON.stringify(artist); //=> {'firstName':'Wassily','lastName':'Kandinsky','birthday':'December 16, 1866'}
-     */
-  toJSON: function toJSON(options) {
-    options || (options = {});
-
-    var res = _underscoreWrapper.default.clone(_backbone.default.Model.prototype.toJSON.apply(this, arguments)),
-        schema = this['__schema__']; // cleanup local properties
-
-
-    if (!options.verbose) {
-      res = _underscoreWrapper.default.omit(res, _underscoreWrapper.default.keys(schema.local));
-    } else {
-      // add derived properties
-      _underscoreWrapper.default.each(schema.derived, function (options, name) {
-        res[name] = this.get(name);
-      }, this);
-    }
-
-    if (this.flat) {
-      res = unflatten(res);
-    }
-
-    return res;
-  },
-
-  /**
-     * Removes all attributes from the model, including the id attribute.
-     * Fires a `"change"` event unless `silent` is passed as an option.
-     * Sets the default values to the model
-     * @param {Object} [options]
-     */
-  reset: function reset(options) {
-    this.clear(options);
-    this.set(_underscoreWrapper.default.result(this, 'defaults'), options);
-  },
-
-  /**
-     * Is the data on the model has local modifications since the last sync event?
-     * @return {Boolean} is the model in sync with the server
-     */
-  isSynced: function isSynced() {
-    return _underscoreWrapper.default.isEqual(this.__syncedData, this.toJSON());
-  },
-
-  /**
-     * validate a specific field in the model.
-     * @param  {String} key
-     * @return {Object} returns `{fieldName: errorMessage}` if invalid, otherwise undefined.
-     * @readonly
-     */
-  validateField: function validateField(key) {
-    var schema = key && this.getPropertySchema(key);
-    return schema && _validateField(schema, this.get(key));
-  },
-
-  /**
-     * Runs local schema validation. Invoked internally by {@link src/framework/Model#validate|validate}.
-     * @return {Object}
-     * @protected
-     */
-  _validateSchema: function _validateSchema() {
-    var schema = this['__schema__'];
-    return _underscoreWrapper.default.reduce(_underscoreWrapper.default.extend({}, schema.props, schema.local), function (memo, options, name) {
-      return _underscoreWrapper.default.extend(memo, this.validateField(name) || {});
-    }, {}, this);
-  },
-  __getDerivedValue: function __getDerivedValue(name) {
-    var options = this['__schema__'].derived[name];
-
-    if (_underscoreWrapper.default.isString(options)) {
-      var key = options;
-      options = {
-        deps: [key],
-        fn: function fn() {
-          return this.get(key);
-        }
-      };
-    }
-
-    var deps = options.deps || [];
-    return options.fn.apply(this, _underscoreWrapper.default.map(deps, this.get, this));
-  }
-}, {
-  ERROR_BLANK: 'model.validation.field.blank',
-  ERROR_WRONG_TYPE: 'model.validation.field.wrong.type',
-  ERROR_NOT_ALLOWED: 'model.validation.field.value.not.allowed',
-  ERROR_INVALID: 'model.validation.field.invalid',
-  ERROR_IARRAY_UNIQUE: 'model.validation.field.array.unique',
-  ERROR_INVALID_FORMAT_EMAIL: 'model.validation.field.invalid.format.email',
-  ERROR_INVALID_FORMAT_URI: 'model.validation.field.invalid.format.uri',
-  ERROR_INVALID_FORMAT_IPV4: 'model.validation.field.invalid.format.ipv4',
-  ERROR_INVALID_FORMAT_HOSTNAME: 'model.validation.field.invalid.format.hostname',
-  ERROR_STRING_STRING_MIN_LENGTH: 'model.validation.field.string.minLength',
-  ERROR_STRING_STRING_MAX_LENGTH: 'model.validation.field.string.maxLength'
-});
-/**
- * It's used for distinguishing the ambiguity from _.isFunction()
- * which returns True for both a JavaScript Class constructor function
- * and normal function. With this flag, we can tell a function is actually
- * a Model Class.
- * This flag is added in order to support the type of a parameter can be
- * either a Class or pure function that returns a Class.
- */
-
-Model.isCourageModel = true;
-var _default = Model;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/framework/View.js":
-/*!**********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/framework/View.js ***!
-  \**********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var CHILDREN = '__children__',
-    RENDERED = '__rendered__',
-    PARENT = '__parent__',
-    CHILD_DEFINITIONS = '__children_definitions__',
-    ADD_TO_CONTAINER = '__add_to_container__';
-
-function getIndex(container, view) {
-  for (var i = 0; i < container[CHILDREN].length; i++) {
-    if (view.cid === container[CHILDREN][i].cid) {
-      return i;
-    }
-  }
-}
-
-function noop() {}
-
-function doRender(view) {
-  view[RENDERED] = true;
-  var html = view.renderTemplate(view.template);
-
-  if (html) {
-    view.$el.html(html);
-  } else if (view.length) {
-    view.$el.empty();
-  }
-
-  view.each(function (view) {
-    view[ADD_TO_CONTAINER]();
-  });
-}
-
-function subscribeEvents(view) {
-  var isEventPropertyRe = /^(?!(?:delegate|undelegate|_))([a-zA-Z0-9]+)(?:Events)$/;
-
-  _underscoreWrapper.default.each(_underscoreWrapper.default.allKeys(view), function (key) {
-    var matchKeys = key.match(isEventPropertyRe);
-
-    if (!matchKeys) {
-      return;
-    }
-
-    var bindings = _underscoreWrapper.default.result(view, key),
-        entity = view.options[matchKeys[1]] || view[matchKeys[1]];
-
-    if (!entity || !_underscoreWrapper.default.isObject(bindings) || !_underscoreWrapper.default.isFunction(entity.trigger)) {
-      return;
-    }
-
-    _underscoreWrapper.default.each(bindings, function (callback, event) {
-      var callbacks = _underscoreWrapper.default.isFunction(callback) ? [callback] : _underscoreWrapper.default.reduce(callback.split(/\s+/), function (arr, name) {
-        if (_underscoreWrapper.default.isFunction(view[name])) {
-          arr.push(view[name]);
-        }
-
-        return arr;
-      }, []);
-
-      _underscoreWrapper.default.each(callbacks, function (cb) {
-        view.listenTo(entity, event, cb);
-      });
-    });
-  });
-}
-/**
-   * A View operates on a string template, an token based template, or a model based template, with a few added hooks.
-   * It provides a collection of child views, when a child view could be a View or another View.
-   * Conceptually, if we were in a file system, the View is a folder, when the concrete child views are files,
-   * and the child Views are sub folders.
-   *
-   * *Technically, when using a View as a container, it could have its own concrete logic,
-   * but conceptually we like to keep it separated so a view is either a concrete view or a collection of child views.*
-   *
-   * In addition to the standard backbone options, we added `settings` and `state` as first class options.
-   * it will automatically assign `options` to `this.options` as an instance member.
-   *
-   * See [Backbone.View](http://backbonejs.org/#View).
-   *
-   * @class src/framework/View
-   * @extends external:Backbone.View
-   * @param {Object} [options] options hash
-   * @example
-   * var DocumentView = Archer.View.extend({
-   *   template: [
-   *     '<header></header>',
-   *     '<article></article>',
-   *     '<footer></footer>'
-   *   ].join(''),
-   *   children: [[HeaderView, 'header'], [ContentView, 'article'], [FooterView, 'footer']]
-   * });
-   */
-
-
-var View = _backbone.default.View.extend(
-/** @lends src/framework/View.prototype */
-{
-  /**
-     * An object listing events and callback bind to this.{entity}
-     * @name *Events
-     * @memberof src/framework/View
-     * @type {(Object|Function)}
-     * @instance
-     * @example
-     * var FooView = View.extend({
-     *   modelEvents: {
-     *     'change:name': 'render'
-     *   }
-     * })
-     * //equivalent to ==>
-     * var FooView = View.extend({
-     *   initialize: function() {
-     *     this.listenTo(this.model, 'change:name', this.render);
-     *   }
-     * });
-     *
-     *
-     * //Multiple callbacks:
-     * var FooView = View.extend({
-     *   modelEvents: {
-     *     'change:name': 'render foo'
-     *   },
-     *   foo: function() {}
-     * });
-     *
-     * //Callbacks As Function:
-     * var FooView = View.extend({
-     *   stateEvents: {
-     *     'change': function() {
-     *   }
-     * });
-     *
-     * //Event Configuration As Function
-     * var FooView = View.extend({
-     *   collectionEvents: function() {
-     *     var events = { 'change:name deleteItem': 'render' };
-     *     events['changeItem'] = 'spin';
-     *     events['addItem'] = function() {};
-     *     return events;
-     *   }
-     * });
-     */
-  constructor: function constructor(options) {
-    /* eslint max-statements: [2, 17] */
-    this.options = options || {};
-
-    _underscoreWrapper.default.extend(this, _underscoreWrapper.default.pick(this.options, 'state', 'settings')); // init per-instance children collection
-
-
-    this[CHILDREN] = [];
-    this[RENDERED] = false;
-    this[PARENT] = null;
-    this[CHILD_DEFINITIONS] = this.children; // we want to make sure initialize is triggered *after* we append the views from the `this.views` array
-
-    var initialize = this.initialize;
-    this.initialize = noop;
-
-    _backbone.default.View.apply(this, arguments);
-
-    _underscoreWrapper.default.each(_underscoreWrapper.default.result(this, CHILD_DEFINITIONS), function (childDefinition) {
-      this.add.apply(this, _underscoreWrapper.default.isArray(childDefinition) ? childDefinition : [childDefinition]);
-    }, this);
-
-    delete this[CHILD_DEFINITIONS];
-
-    var autoRender = _underscoreWrapper.default.result(this, 'autoRender');
-
-    if (autoRender && this.model) {
-      var event = _underscoreWrapper.default.isArray(autoRender) ? _underscoreWrapper.default.map(autoRender, function (field) {
-        return 'change:' + field;
-      }).join(' ') : 'change';
-      this.listenTo(this.model, event, function () {
-        this.render();
-      });
-    }
-
-    this.initialize = initialize;
-    this.initialize.apply(this, arguments);
-    subscribeEvents(this);
-  },
-
-  /**
-     * Unregister view from container
-     * Note: this will not remove the view from the dom
-     * and will not call the `remove` method on the view
-     *
-     * @param {src/framework/View} view the view to unregister
-     * @private
-     */
-  unregister: function unregister(view) {
-    this.stopListening(view);
-    var viewIndex = getIndex(this, view); // viewIndex is undefined when the view is not found (may have been removed)
-    // check if it is undefined to prevent unexpected thing to happen
-    // array.splice(undefined, x) removes the first x element(s) from the array
-    // this protects us against issues when calling `remove` on a child view multiple times
-
-    if (_underscoreWrapper.default.isNumber(viewIndex)) {
-      this[CHILDREN].splice(viewIndex, 1);
-    }
-  },
-
-  /**
-     * Should we auto render the view upon model change. Boolean or array of field names to listen to.
-     * @type {Boolean|Array}
-     * @deprecated Instead, please use modelEvents
-     * @example
-     * modelEvents: {
-     *   change:name: 'render'
-     * }
-     */
-  autoRender: false,
-
-  /**
-     *
-     * When the template is an underscore template, the render method will pass the options has to the template
-     * And the associated model, if exists, when it will prefer the model over the options in case of a conflict.
-     * {@link #render View.render}
-     * @type {(String|Function)}
-     * @example
-     * var View = View.extend({
-     *   template: '<p class="name">{{name}}</p>'
-     * };
-     */
-  template: null,
-
-  /**
-     * A list of child view definitions to be passed to {@link #add this.add()}.
-     * Note: these definitions will be added **before** the {@link #constructor initiliaze} method invokes.
-     * @type {(Array|Function)}
-     * @example
-     * var Container = View.extend({
-     *    template: '<p class="content"></p>',
-     *    children: [
-     *      [ContentView, '.content'],
-     *      [OtherContentView, '.content'],
-     *      OtherView
-     *    ]
-     *  })
-     *
-     * var Container = View.extend({
-     *    template: '<dov class="form-wrap"></div>',
-     *    children: function () {
-     *      return [
-     *        [FormView, '.form-wrap', {options: {model: this.optiosn.otherModel}}]
-     *      ]
-     *    }
-     *  })
-     */
-  children: [],
-
-  /**
-     * Add a child view to the container.
-     * If the container is already rendered, will also render the view  and append it to the DOM.
-     * Otherwise will render and append once the container is rendered.
-     *
-     * *We believe that for the sake of encapsulation, a view should control its own chilren, so we treat this method as
-     * protected and even though technically you can call `view.add` externally we strongly discourage it.*
-     *
-     * @param {(src/framework/View|String)} view A class (or an instance which is discouraged) of a View - or an HTML
-     * string/template
-     * @param {String} [selector] selector in the view's template on which the view will be added to
-     * @param {Object} [options]
-     * @param {Boolean} [options.bubble=false] Bubble (proxy) events from this view up the chain
-     * @param {Boolean} [options.prepend=false] Prepend the view instend of appending
-     * @param {String} [options.selector] Selector in the view's template on which the view will be added to
-     * @param {Object} [options.options] Extra options to pass to the child constructor
-     * @protected
-     * @returns {src/framework/View} - The instance of itself for the sake of chaining
-     * @example
-     * var Container = View.extend({
-     *
-     *   template: [
-     *     '<h1></h1>',
-     *     '<section></section>',
-     *   ].join(''),
-     *
-     *   initalize: function () {
-     *
-     *     this.add(TitleView, 'h1'); // will be added to <h1>
-     *
-     *     this.add(ContentView1, 'section'); // will be added to <section>
-     *
-     *     this.add(ContentView2, 'section', {prepend: true}); // will be add into <section> **before** ContentView1
-     *
-     *     this.add(OtherView, {
-     *       options: {
-     *         model: new Model()
-     *       }
-     *     }); // will be added **after** the <section> element
-     *
-     *     this.add('<p class="name">some html</p>'); //=> "<p class="name">some html</p>"
-     *     this.add('<p class="name">{{name}}</p>'); //=> "<p class="name">John Doe</p>"
-     *     this.add('{{name}}') //=> "<div>John Doe</div>"
-     *     this.add('<span>{{name}}</span> w00t') //=> "<div><span>John Doe</span> w00t</div>"
-     *   }
-     *
-     * });
-     *
-     * var container - new View({name: 'John Doe'});
-     */
-  add: function add(view, selector, bubble, prepend, extraOptions) {
-    /* eslint max-statements: [2, 29], complexity: [2, 12] */
-    var options = {},
-        args = _underscoreWrapper.default.toArray(arguments); // This will throw if a compiled template function is passed accidentally
-
-
-    if (_underscoreWrapper.default.isFunction(view) && (!view.prototype || !view.prototype.render)) {
-      throw new Error('Type passed to add() is not a View');
-    }
-
-    if (_underscoreWrapper.default.isObject(selector)) {
-      options = selector;
-      selector = options.selector;
-      bubble = options.bubble;
-      prepend = options.prepend;
-      extraOptions = options.options;
-    } else if (_underscoreWrapper.default.isObject(bubble)) {
-      options = bubble;
-      bubble = options.bubble;
-      prepend = options.prepend;
-      extraOptions = options.options;
-    } // TODO: This will be deprecated at some point. Views should use precompiled templates
-
-
-    if (_underscoreWrapper.default.isString(view)) {
-      view = function (template) {
-        return View.extend({
-          constructor: function constructor() {
-            try {
-              var $el = _backbone.default.$(template);
-
-              if ($el.length != 1) {
-                throw 'invalid Element';
-              }
-
-              var unescapingRexExp = /&(\w+|#x\d+);/g;
-              var elementUnescapedOuterHTMLLength = $el.prop('outerHTML').replace(unescapingRexExp, ' ').length;
-              var templateUnescapedLength = template.replace(unescapingRexExp, ' ').length;
-
-              if (elementUnescapedOuterHTMLLength !== templateUnescapedLength) {
-                throw 'invalid Element';
-              }
-
-              this.template = $el.html(); // Template string will be compiled by handlebars
-
-              this.el = $el.empty()[0];
-            } catch (e) {
-              // not a valid html tag.
-              this.template = template;
-            }
-
-            View.apply(this, arguments);
-          }
-        });
-      }(view);
-    }
-
-    if (view.prototype && view.prototype instanceof View) {
-      /* eslint new-cap: 0 */
-      var viewOptions = _underscoreWrapper.default.omit(_underscoreWrapper.default.extend({}, this.options, extraOptions), 'el');
-
-      args[0] = new view(viewOptions);
-      return this.add.apply(this, args);
-    } // prevent dups
-
-
-    if (_underscoreWrapper.default.isNumber(getIndex(this, view))) {
-      throw new Error('Duplicate child');
-    }
-
-    view[PARENT] = this; // make the view responsible for adding itself to the parent:
-    // * register the selector in the closure
-    // * register a reference the parent in the closure
-
-    view[ADD_TO_CONTAINER] = function (selector) {
-      return function () {
-        if (selector && view[PARENT].$(selector).length != 1) {
-          throw new Error('Invalid selector: ' + selector);
-        }
-
-        var $el = selector ? this[PARENT].$(selector) : this[PARENT].$el;
-        this.render(); // we need to delegate events in case
-        // the view was added and removed before
-
-        this.delegateEvents(); // this[PARENT].at(index).$el.before(this.el);
-
-        prepend ? $el.prepend(this.el) : $el.append(this.el);
-      };
-    }.call(view, selector); // if flag to bubble events is set
-    // proxy all child view events
-
-
-    if (bubble) {
-      this.listenTo(view, 'all', function () {
-        this.trigger.apply(this, arguments);
-      });
-    } // add to the dom if `render` has been called
-
-
-    if (this.rendered()) {
-      view[ADD_TO_CONTAINER]();
-    } // add view to child views collection
-
-
-    this[CHILDREN].push(view);
-    return this;
-  },
-
-  /**
-     * Remove all children from container
-     */
-  removeChildren: function removeChildren() {
-    this.each(function (view) {
-      view.remove();
-    });
-    return this;
-  },
-
-  /**
-     *  Removes a view from the DOM, and calls stopListening to remove any bound events that the view has listenTo'd.
-     *  Also removes all childern of the view if any, and removes itself from its parent view(s)
-     */
-  remove: function remove() {
-    this.removeChildren();
-
-    if (this[PARENT]) {
-      this[PARENT].unregister(this);
-    }
-
-    return _backbone.default.View.prototype.remove.apply(this, arguments);
-  },
-
-  /**
-     * Compile the template to function you can apply tokens on on render time.
-     * Uses the underscore tempalting engine by default
-     * @protected
-     * @param  {String} template
-     * @return {Function} a compiled template
-     */
-  // TODO: This will be deprecated at some point. Views should use precompiled templates
-  compileTemplate: function compileTemplate(template) {
-    /* eslint  @okta/okta-ui/no-specific-methods: 0*/
-    return _underscoreWrapper.default.template(template);
-  },
-
-  /**
-     * Render a template with `this.model` and `this.options` as parameters
-     * preferring the model over the options.
-     *
-     * @param  {(String|Function)} template The template to build
-     * @return {String} An HTML string
-     * @protected
-     */
-  renderTemplate: function renderTemplate(template) {
-    if (_underscoreWrapper.default.isString(template)) {
-      // TODO: This will be deprecated at some point. Views should use precompiled templates
-      template = this.compileTemplate(template);
-    }
-
-    if (_underscoreWrapper.default.isFunction(template)) {
-      return template(this.getTemplateData());
-    }
-  },
-
-  /**
-     * The data hash passed to the compiled template
-     * @return {Object}
-     * @protected
-     */
-  getTemplateData: function getTemplateData() {
-    var modelData = this.model && this.model.toJSON({
-      verbose: true
-    }) || {};
-
-    var options = _underscoreWrapper.default.omit(this.options, ['state', 'settings', 'model', 'collection']);
-
-    return _underscoreWrapper.default.defaults({}, modelData, options);
-  },
-
-  /**
-     * Renders the template to `$el` and append all children in order
-     * {@link #template View.template}
-     */
-  render: function render() {
-    this.preRender();
-    doRender(this);
-    this.postRender();
-    return this;
-  },
-
-  /**
-     * Pre render routine. Will be called right *before* the logic in {@link #render} is executed
-     * @method
-     */
-  preRender: noop,
-
-  /**
-     * Post render routine. Will be called right *after* the logic in {@link #render} is executed
-     * @method
-     */
-  postRender: noop,
-
-  /**
-     * Was this instance rendered
-     */
-  rendered: function rendered() {
-    return this[RENDERED];
-  },
-
-  /**
-     * Get all direct child views.
-     * @returns {src/framework/View[]}
-     * @example
-     * var container = View.extend({
-     *   children: [View1, View2]
-     * }).render();
-     * container.getChildren() //=> [view1, view2];
-     */
-  getChildren: function getChildren() {
-    return this.toArray();
-  },
-
-  /**
-     * Get a child by index
-     * @param {number} index
-     * @returns {src/framework/View} The child view
-     */
-  at: function at(index) {
-    return this.getChildren()[index];
-  },
-
-  /**
-     * Invokes a method on all children down the tree
-     *
-     * @param {String} method The method to invoke
-     */
-  invoke: function invoke(methodName) {
-    var args = _underscoreWrapper.default.toArray(arguments);
-
-    this.each(function (child) {
-      // if child has children, bubble down the tree
-      if (child.size()) {
-        child.invoke.apply(child, args);
-      } // run the function on the child
-
-
-      if (_underscoreWrapper.default.isFunction(child[methodName])) {
-        child[methodName].apply(child, args.slice(1));
-      }
-    });
-    return this;
-  }
-}); // Code borrowed from Backbone.js source
-// Underscore methods that we want to implement on the Container.
-
-
-var methods = ['each', 'map', 'reduce', 'reduceRight', 'find', 'filter', 'reject', 'every', 'some', 'contains', 'toArray', 'size', 'first', 'initial', 'rest', 'last', 'without', 'indexOf', 'shuffle', 'lastIndexOf', 'isEmpty', 'chain', 'where', 'findWhere'];
-
-_underscoreWrapper.default.each(methods, function (method) {
-  View.prototype[method] = function () {
-    var args = _underscoreWrapper.default.toArray(arguments);
-
-    args.unshift(_underscoreWrapper.default.toArray(this[CHILDREN]));
-    return _underscoreWrapper.default[method].apply(_underscoreWrapper.default, args);
-  };
-}, void 0);
-/**
-   * See [_.each](http://underscorejs.org/#each)
-   * @name each
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} iterator
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.map](http://underscorejs.org/#map)
-   * @name map
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} iterator
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.reduce](http://underscorejs.org/#reduce)
-   * @name reduce
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} iterator
-   * @param {Mixed} memo
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.reduceRight](http://underscorejs.org/#reduceRight)
-   * @name reduceRight
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} iterator
-   * @param {Mixed} memo
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.find](http://underscorejs.org/#find)
-   * @name find
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} predicate
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.filter](http://underscorejs.org/#filter)
-   * @name filter
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} predicate
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.reject](http://underscorejs.org/#reject)
-   * @name reject
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} predicate
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.every](http://underscorejs.org/#every)
-   * @name every
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} [predicate]
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.some](http://underscorejs.org/#some)
-   * @name some
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Function} [predicate]
-   * @param {Object} [context]
-   */
-
-/**
-   * See [_.contains](http://underscorejs.org/#contains)
-   * @name contains
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Mixed} value
-   */
-
-/**
-   * See [_.toArray](http://underscorejs.org/#toArray)
-   * @name toArray
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.size](http://underscorejs.org/#size)
-   * @name size
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.first](http://underscorejs.org/#first)
-   * @name first
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Number} [n]
-   */
-
-/**
-   * See [_.initial](http://underscorejs.org/#initial)
-   * @name initial
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Number} [n]
-   */
-
-/**
-   * See [_.last](http://underscorejs.org/#last)
-   * @name last
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Number} [n]
-   */
-
-/**
-   * See [_.rest](http://underscorejs.org/#rest)
-   * @name rest
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Number} [index]
-   */
-
-/**
-   * See [_.without](http://underscorejs.org/#without)
-   * @name without
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.indexOf](http://underscorejs.org/#indexOf)
-   * @name indexOf
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Mixed} value
-   * @param {Boolean} [isSorted]
-   */
-
-/**
-   * See [_.shuffle](http://underscorejs.org/#shuffle)
-   * @name shuffle
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.shuffle](http://underscorejs.org/#lastIndexOf)
-   * @name lastIndexOf
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Mixed} value
-   * @param {Number} [fromIndex]
-   */
-
-/**
-   * See [_.isEmpty](http://underscorejs.org/#isEmpty)
-   * @name isEmpty
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.chain](http://underscorejs.org/#chain)
-   * @name chain
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   */
-
-/**
-   * See [_.where](http://underscorejs.org/#where)
-   * @name where
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Object} properties
-   */
-
-/**
-   * See [_.findWhere](http://underscorejs.org/#findWhere)
-   * @name findWhere
-   * @memberof src/framework/View
-   * @method
-   * @instance
-   * @param {Object} properties
-   */
-
-/**
- * It's used for distinguishing the ambiguity from _.isFunction()
- * which returns True for both a JavaScript Class constructor function
- * and normal function. With this flag, we can tell a function is actually
- * a View Class.
- * This flag is added in order to support the type of a parameter can be
- * either a Class or pure function that returns a Class.
- */
-
-
-View.isCourageView = true;
-var _default = View;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/models/BaseCollection.js":
-/*!*****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/models/BaseCollection.js ***!
-  \*****************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Collection = _interopRequireDefault(__webpack_require__(/*! ../framework/Collection */ "./node_modules/@okta/courage/src/framework/Collection.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/**
- * Wrapper around the more generic {@link src/framework/Collection} that
- * contains Okta-specific logic.
- * @class module:Okta.Collection
- * @extends src/framework/Collection
- */
-var _default = _Collection.default.extend(
-/** @lends module:Okta.Collection.prototype */
-{
-  /**
-   * Is the end point using the legacy "secureJSON" format
-   * @type {Function|Boolean}
-   */
-  secureJSON: false,
-  constructor: function constructor() {
-    _Collection.default.apply(this, arguments);
-
-    if (_underscoreWrapper.default.result(this, 'secureJSON')) {
-      this.sync = _underscoreWrapper.default.wrap(this.sync, function (sync, method, collection, options) {
-        return sync.call(this, method, collection, _underscoreWrapper.default.extend({
-          dataType: 'secureJSON'
-        }, options));
-      });
-    }
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/models/BaseModel.js":
-/*!************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/models/BaseModel.js ***!
-  \************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Model = _interopRequireDefault(__webpack_require__(/*! ./Model */ "./node_modules/@okta/courage/src/models/Model.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
-
-var hasProps = function hasProps(model) {
-  var local = _underscoreWrapper.default.omit(model.local, _underscoreWrapper.default.keys(model._builtInLocalProps));
-
-  return _underscoreWrapper.default.size(model.props) + _underscoreWrapper.default.size(local) > 0;
-};
-/**
- * @class module:Okta.BaseModel
- * @extends module:Okta.Model
- * @deprecated Use {@link module:Okta.Model|Okta.Model} instead
- * @example
- * var Model = BaseModel.extend({
- *   defaults: {
- *     name: BaseModel.ComputedProperty(['fname', 'lname'], function (fname, lname) {
- *       return fname + ' ' + lname;
- *     })
- *   }
- * });
- * var model = new Model({fname: 'Joe', lname: 'Doe'});
- * model.get('name'); //=> "Joe Doe"
- * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
- *
- * model.set('__private__', 'private property');
- * model.get('__private__'); //=> "private property"
- * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
- */
-
-
-var BaseModelBaseModel = _Model.default.extend(
-/** @lends module:Okta.BaseModel.prototype */
-{
-  /**
-   * @type {Boolean}
-   */
-  flat: false,
-  constructor: function constructor() {
-    _Model.default.apply(this, arguments);
-
-    this.on('sync', this._setSynced);
-  },
-  allows: function allows() {
-    if (hasProps(this)) {
-      return _Model.default.prototype.allows.apply(this, arguments);
-    } else {
-      return true;
-    }
-  },
-  // bw compatibility support for old computed properties
-  set: function set(key, val) {
-    var attrs;
-
-    if (_typeof(key) === 'object') {
-      attrs = key;
-    } else {
-      (attrs = {})[key] = val;
-    } // computed properties
-
-
-    (0, _underscoreWrapper.default)(attrs).each(function (fn, attr) {
-      if (!fn || !_underscoreWrapper.default.isArray(fn.__attributes)) {
-        return;
-      }
-
-      this.on('change:' + fn.__attributes.join(' change:'), function () {
-        var val = this.get(attr);
-
-        if (val !== this['__schema__'].computedProperties[attr]) {
-          this['__schema__'].computedProperties[attr] = val;
-          this.trigger('change:' + attr, val);
-        }
-      }, this);
-    }, this);
-    return _Model.default.prototype.set.apply(this, arguments);
-  },
-
-  /**
-   * Get the current value of an attribute from the model. For example: `note.get("title")`
-   *
-   * See [Model.get](http://backbonejs.org/#Model-get)
-   * @param {String} attribute
-   * @return {Mixed} The value of the model attribute
-   */
-  get: function get() {
-    var value = _Model.default.prototype.get.apply(this, arguments);
-
-    if (_underscoreWrapper.default.isFunction(value)) {
-      return value.apply(this, _underscoreWrapper.default.map(value.__attributes || [], this.get, this));
-    }
-
-    return value;
-  },
-
-  /**
-   * Return a shallow copy of the model's attributes for JSON stringification.
-   * This can be used for persistence, serialization, or for augmentation before being sent to the server.
-   * The name of this method is a bit confusing, as it doesn't actually return a JSON string —
-   *  but I'm afraid that it's the way that the JavaScript API for JSON.stringify works.
-   *
-   * ```javascript
-   * var artist = new Model({
-   *   firstName: "Wassily",
-   *   lastName: "Kandinsky"
-   * });
-   *
-   * artist.set({birthday: "December 16, 1866"});
-   * alert(JSON.stringify(artist)); // {"firstName":"Wassily","lastName":"Kandinsky","birthday":"December 16, 1866"}
-   * ```
-   * See [Model.toJSON](http://backbonejs.org/#Model-toJSON)
-   * @param  {Object} options
-   * @return {Object}
-   */
-  toJSON: function toJSON(options) {
-    options || (options = {});
-
-    var res = _Model.default.prototype.toJSON.apply(this, arguments); // cleanup computed properties
-
-
-    (0, _underscoreWrapper.default)(res).each(function (value, key) {
-      if (typeof value === 'function') {
-        if (options.verbose) {
-          res[key] = this.get(key);
-        } else {
-          delete res[key];
-        }
-      }
-    }, this); // cleanup private properties
-
-    if (!options.verbose) {
-      (0, _underscoreWrapper.default)(res).each(function (value, key) {
-        if (/^__\w+__$/.test(key)) {
-          delete res[key];
-        }
-      });
-    }
-
-    return res;
-  },
-  sanitizeAttributes: function sanitizeAttributes(attributes) {
-    var attrs = {};
-
-    _underscoreWrapper.default.each(attributes, function (value, key) {
-      if (!_underscoreWrapper.default.isFunction(value)) {
-        attrs[key] = value;
-      }
-    });
-
-    return attrs;
-  },
-  reset: function reset(options) {
-    this.clear(options);
-    this.set(this.sanitizeAttributes(this.defaults), options);
-  },
-  clear: function clear(options) {
-    var attrs = {};
-
-    _underscoreWrapper.default.each(this.sanitizeAttributes(this.attributes), function (value, key) {
-      attrs[key] = void 0;
-    });
-
-    return this.set(attrs, _underscoreWrapper.default.extend({}, options, {
-      unset: true
-    }));
-  },
-
-  /**
-   * @private
-   */
-  _setSynced: function _setSynced(newModel) {
-    this._syncedData = newModel && _underscoreWrapper.default.isFunction(newModel.toJSON) ? newModel.toJSON() : {};
-  },
-
-  /**
-   * @private
-   */
-  _getSynced: function _getSynced() {
-    return this._syncedData;
-  },
-  isSynced: function isSynced() {
-    return _underscoreWrapper.default.isEqual(this._getSynced(), this.toJSON());
-  }
-},
-/** @lends module:Okta.BaseModel.prototype */
-{
-  /**
-   * @static
-   *
-   * Example:
-   *
-   * ```javascript
-   * var Model = BaseModel.extend({
-   *   defaults: {
-   *     name: BaseModel.ComputedProperty(['fname', 'lname'], function (fname, lname) {
-   *       return fname + ' ' + lname;
-   *     })
-   *   }
-   * });
-   * var model = new Model({fname: 'Joe', lname: 'Doe'});
-   * model.get('name'); // Joe Doe
-   * model.toJSON(); // {fname: 'Joe', lname: 'Doe'}
-   * ```
-   *
-   * @param {Array} attributes - an array of the attribute names this method depends on
-   * @param {Function} callback the function that computes the value of the property
-   *
-   * @deprecated Use {@link #derived} instead
-   */
-  ComputedProperty: function ComputedProperty() {
-    var args = _underscoreWrapper.default.toArray(arguments);
-
-    var fn = args.pop();
-    fn.__attributes = args.pop();
-    return fn;
-  }
-});
-
-var _default = BaseModelBaseModel;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/models/BaseSchema.js":
-/*!*************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/models/BaseSchema.js ***!
-  \*************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _BaseCollection = _interopRequireDefault(__webpack_require__(/*! ./BaseCollection */ "./node_modules/@okta/courage/src/models/BaseCollection.js"));
-
-var _BaseModel = _interopRequireDefault(__webpack_require__(/*! ./BaseModel */ "./node_modules/@okta/courage/src/models/BaseModel.js"));
-
-var _SchemaProperty = _interopRequireDefault(__webpack_require__(/*! ./SchemaProperty */ "./node_modules/@okta/courage/src/models/SchemaProperty.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var parseProperties = function parseProperties(resp) {
-  var schemaMeta = _underscoreWrapper.default.pick(resp, 'id', 'name', 'displayName');
-
-  var properties = _underscoreWrapper.default.map(resp.schema.properties, function (property, name) {
-    return _underscoreWrapper.default.extend({
-      name: name
-    }, property);
-  });
-
-  _underscoreWrapper.default.each(properties, function (property) {
-    property['__schemaMeta__'] = schemaMeta;
-
-    if (property.__metadata) {
-      property['__metadata__'] = property.__metadata;
-      delete property.__metadata;
-    }
-  });
-
-  return properties;
-};
-
-var BaseSchemaSchema = _BaseModel.default.extend({
-  defaults: {
-    id: undefined,
-    displayName: undefined,
-    name: undefined
-  },
-  constructor: function constructor() {
-    this.properties = new _SchemaProperty.default.Collection();
-
-    _BaseModel.default.apply(this, arguments);
-  },
-  getProperties: function getProperties() {
-    return this.properties;
-  },
-  clone: function clone() {
-    var model = _BaseModel.default.prototype.clone.apply(this, arguments);
-
-    model.getProperties().set(this.getProperties().toJSON({
-      verbose: true
-    }));
-    return model;
-  },
-  parse: function parse(resp) {
-    var properties = parseProperties(resp);
-    this.properties.set(properties, {
-      parse: true
-    });
-    return _underscoreWrapper.default.omit(resp, 'schema');
-  },
-  trimProperty: function trimProperty(property) {
-    return _underscoreWrapper.default.omit(property, 'name');
-  },
-  toJSON: function toJSON() {
-    var json = _BaseModel.default.prototype.toJSON.apply(this, arguments);
-
-    json.schema = {
-      properties: {}
-    };
-    this.getProperties().each(function (model) {
-      var property = model.toJSON();
-      json.schema.properties[property.name] = this.trimProperty(property);
-    }, this);
-    return json;
-  },
-  save: function save() {
-    this.getProperties().each(function (model) {
-      model.cleanup();
-    });
-    return _BaseModel.default.prototype.save.apply(this, arguments);
-  }
-});
-
-var BaseSchemaSchemas = _BaseCollection.default.extend({
-  model: BaseSchemaSchema
-});
-
-var _default = {
-  parseProperties: parseProperties,
-  Model: BaseSchemaSchema,
-  Collection: BaseSchemaSchemas
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/models/Model.js":
-/*!********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/models/Model.js ***!
-  \********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Model = _interopRequireDefault(__webpack_require__(/*! ../framework/Model */ "./node_modules/@okta/courage/src/framework/Model.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/**
- * Wrapper around the more generic {@link src/framework/Model} that
- * contains Okta-specific logic.
- * @class module:Okta.Model
- * @extends src/framework/Model
- */
-var _default = _Model.default.extend(
-/** @lends module:Okta.Model.prototype */
-{
-  /**
-   * Is the end point using the legacy "secureJSON" format
-   * @type {Function|Boolean}
-   */
-  secureJSON: false,
-  _builtInLocalProps: {
-    __edit__: 'boolean',
-    __pending__: 'boolean'
-  },
-  constructor: function constructor() {
-    this.local = _underscoreWrapper.default.defaults({}, _underscoreWrapper.default.result(this, 'local'), this._builtInLocalProps);
-
-    _Model.default.apply(this, arguments);
-
-    if (_underscoreWrapper.default.result(this, 'secureJSON')) {
-      this.sync = _underscoreWrapper.default.wrap(this.sync, function (sync, method, model, options) {
-        return sync.call(this, method, model, _underscoreWrapper.default.extend({
-          dataType: 'secureJSON'
-        }, options));
-      });
-    }
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/models/SchemaProperty.js":
-/*!*****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/models/SchemaProperty.js ***!
-  \*****************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _BaseCollection = _interopRequireDefault(__webpack_require__(/*! ./BaseCollection */ "./node_modules/@okta/courage/src/models/BaseCollection.js"));
-
-var _BaseModel = _interopRequireDefault(__webpack_require__(/*! ./BaseModel */ "./node_modules/@okta/courage/src/models/BaseModel.js"));
-
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ../util/Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
-
-var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../util/SchemaUtil */ "./node_modules/@okta/courage/src/util/SchemaUtil.js"));
-
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
-
-var _EnumTypeHelper = _interopRequireDefault(__webpack_require__(/*! ../views/forms/helpers/EnumTypeHelper */ "./node_modules/@okta/courage/src/views/forms/helpers/EnumTypeHelper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint max-statements: [2, 16], complexity: [2, 8], max-params: [2, 8] */
-var loc = _StringUtil.default.localize;
-var STRING = _SchemaUtil.default.STRING;
-var NUMBER = _SchemaUtil.default.NUMBER;
-var INTEGER = _SchemaUtil.default.INTEGER;
-var OBJECT = _SchemaUtil.default.OBJECT;
-
-var getArrayTypeName = function getArrayTypeName(type, elementType) {
-  return type + 'of' + elementType;
-};
-
-var SchemaPropertySubSchema = _BaseModel.default.extend({
-  defaults: {
-    description: undefined,
-    minLength: undefined,
-    maxLength: undefined,
-    format: undefined
-  },
-  parse: function parse(resp) {
-    if (_underscoreWrapper.default.isString(resp.format)) {
-      var matcher = /^\/(.+)\/$/.exec(resp.format);
-
-      if (matcher) {
-        resp.format = matcher[1];
-      }
-    }
-
-    return resp;
-  }
-});
-
-var SchemaPropertySubSchemaCollection = _BaseCollection.default.extend({
-  model: SchemaPropertySubSchema
-});
-
-var SchemaPropertySubSchemaAllOfCollection = SchemaPropertySubSchemaCollection.extend({
-  _type: 'allOf'
-});
-var SchemaPropertySubSchemaOneOfCollection = SchemaPropertySubSchemaCollection.extend({
-  _type: 'oneOf'
-});
-var SchemaPropertySubSchemaNoneOfCollection = SchemaPropertySubSchemaCollection.extend({
-  _type: 'noneOf'
-});
-var constraintTypeErrorMessages = {
-  string: loc('schema.validation.field.value.must.string', 'courage'),
-  number: loc('schema.validation.field.value.must.number', 'courage'),
-  integer: loc('schema.validation.field.value.must.integer', 'courage'),
-  object: loc('schema.validation.field.value.must.object', 'courage')
-};
-var loginFormatNonePattern = '.+';
-var escapedLoginCharsRe = /[^a-zA-Z0-9-]/;
-var constraintHandlers = {
-  between: '_checkBetweenConstraints',
-  greaterThan: '_checkGreaterThanConstraint',
-  lessThan: '_checkLessThanConstraint',
-  equals: '_checkEqualsConstraint'
-};
-
-var SchemaPropertySchemaProperty = _BaseModel.default.extend({
-  idAttribute: 'name',
-  local: {
-    __oneOf__: {
-      type: 'array',
-      minItems: 1
-    }
-  },
-  defaults: {
-    // OKTA-28445, set empty string by default as the key for each property when syncing with server
-    // so that server can respond with error when a name is not provided
-    name: '',
-    title: undefined,
-    type: undefined,
-    description: undefined,
-    required: false,
-    format: undefined,
-    // choose disable option be default.
-    union: undefined,
-    subSchemas: undefined,
-    settings: {
-      permissions: {
-        SELF: _SchemaUtil.default.PERMISSION.READ_ONLY
-      }
-    },
-    unique: undefined,
-    __metadata__: undefined,
-    __isSensitive__: _BaseModel.default.ComputedProperty(['settings'], function (settings) {
-      return !!(settings && settings.sensitive);
-    }),
-    __unique__: false,
-    __isUniqueValidated__: _BaseModel.default.ComputedProperty(['unique'], function (unique) {
-      return unique === _SchemaUtil.default.UNIQUENESS.UNIQUE_VALIDATED;
-    }),
-    __isPendingUniqueness__: _BaseModel.default.ComputedProperty(['unique'], function (unique) {
-      return unique === _SchemaUtil.default.UNIQUENESS.PENDING_UNIQUENESS;
-    }),
-    __isUniqueness__: _BaseModel.default.ComputedProperty(['__isUniqueValidated__', '__isPendingUniqueness__'], function (isValidated, isPending) {
-      return isValidated || isPending;
-    }),
-    __canBeSensitive__: _BaseModel.default.ComputedProperty(['__metadata__'], function (metadata) {
-      return !!(metadata && metadata.sensitivizable);
-    }),
-    __userPermission__: _SchemaUtil.default.PERMISSION.READ_ONLY,
-    __displayType__: undefined,
-    __displayTypeLabel__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _SchemaUtil.default.DATATYPE[displayType] || displayType;
-    }),
-    __supportsMinMax__: false,
-    // use the private naming convention for these computed properties,
-    // to deal with the complexity in cloning schema with properties (toJSON({verbose: true})),
-    // to make sure these attributes are being excluded from api request
-    __isReadOnly__: _BaseModel.default.ComputedProperty(['mutability'], function (mutability) {
-      return mutability === _SchemaUtil.default.MUTABILITY.READONLY;
-    }),
-    __isWriteOnly__: _BaseModel.default.ComputedProperty(['mutability'], function (mutability) {
-      return mutability === _SchemaUtil.default.MUTABILITY.WRITEONLY;
-    }),
-    __displayScope__: undefined,
-    __isScopeSelf__: _BaseModel.default.ComputedProperty(['scope'], function (scope) {
-      return scope === _SchemaUtil.default.SCOPE.SELF;
-    }),
-    __isNoneScopeArrayType__: _BaseModel.default.ComputedProperty(['__isScopeSelf__', '__displayType__'], function (isScopeSelf, displayType) {
-      return !isScopeSelf && _SchemaUtil.default.isArrayDataType(displayType);
-    }),
-    __isImported__: _BaseModel.default.ComputedProperty(['externalName'], function (externalName) {
-      return !!externalName;
-    }),
-    __isFromBaseSchema__: _BaseModel.default.ComputedProperty(['__schemaMeta__'], function (schemaMeta) {
-      return schemaMeta && schemaMeta.name === 'base';
-    }),
-    // Only UI can turn on __enumDefined__ and reprocess the enum/oneOf value; otherwise,
-    // it should leave existing value untouch
-    __enumDefined__: false,
-    __supportEnum__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _underscoreWrapper.default.contains(_SchemaUtil.default.SUPPORTENUM, displayType);
-    }),
-    __isNumberTypeEnum__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _underscoreWrapper.default.contains([_SchemaUtil.default.NUMBER, _SchemaUtil.default.ARRAYDISPLAYTYPE.arrayofnumber], displayType);
-    }),
-    __isIntegerTypeEnum__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _underscoreWrapper.default.contains([_SchemaUtil.default.INTEGER, _SchemaUtil.default.ARRAYDISPLAYTYPE.arrayofinteger], displayType);
-    }),
-    __isObjectTypeEnum__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _underscoreWrapper.default.contains([_SchemaUtil.default.OBJECT, _SchemaUtil.default.ARRAYDISPLAYTYPE.arrayofobject], displayType);
-    }),
-    __isStringTypeEnum__: _BaseModel.default.ComputedProperty(['__displayType__'], function (displayType) {
-      return _underscoreWrapper.default.contains([_SchemaUtil.default.STRING, _SchemaUtil.default.ARRAYDISPLAYTYPE.arrayofstring], displayType);
-    }),
-    __enumConstraintType__: _BaseModel.default.ComputedProperty(['__isStringTypeEnum__', '__isNumberTypeEnum__', '__isIntegerTypeEnum__', '__isObjectTypeEnum__'], function (isStringType, isNumberType, isIntegerType, isObjectType) {
-      if (isStringType) {
-        return STRING;
-      }
-
-      if (isNumberType) {
-        return NUMBER;
-      }
-
-      if (isIntegerType) {
-        return INTEGER;
-      }
-
-      if (isObjectType) {
-        return OBJECT;
-      }
-    }),
-    __isEnumDefinedAndSupported__: _BaseModel.default.ComputedProperty(['__enumDefined__', '__supportEnum__'], function (enumDefined, supportEnum) {
-      return enumDefined && supportEnum;
-    }),
-    __isLoginOfBaseSchema__: _BaseModel.default.ComputedProperty(['__isFromBaseSchema__', 'name'], function (isFromBaseSchema, name) {
-      return isFromBaseSchema && name === 'login';
-    }),
-    __isLoginFormatRestrictionToEmail__: _BaseModel.default.ComputedProperty(['__loginFormatRestriction__'], function (loginFormatRestriction) {
-      return loginFormatRestriction === _SchemaUtil.default.LOGINPATTERNFORMAT.EMAIL;
-    })
-  },
-  initialize: function initialize() {
-    _BaseModel.default.prototype.initialize.apply(this, arguments);
-
-    this.listenTo(this, 'change:__displayType__', this._updateTypeFormatConstraints);
-    this.listenTo(this, 'change:type change:format change:items', this._updateDisplayType);
-    this.listenTo(this, 'change:__minVal__ change:__maxVal__', this._updateMinMax);
-    this.listenTo(this, 'change:__equals__', this._convertEqualsToMinMax);
-    this.listenTo(this, 'change:__constraint__', this._setConstraintText);
-
-    this._setConstraintText();
-
-    this._setLoginPattern();
-  },
-  parse: function parse(resp) {
-    /* eslint complexity: [2, 9] */
-    resp = _underscoreWrapper.default.clone(resp);
-
-    if (resp.type === 'object' && resp.extendedType === 'image') {
-      resp.type = 'image';
-    }
-
-    resp['__displayType__'] = _SchemaUtil.default.getDisplayType(resp.type, resp.format, resp.items ? resp.items.format ? resp.items.format : resp.items.type : undefined);
-
-    this._setRangeConstraints(resp);
-
-    resp['__supportsMinMax__'] = _SchemaUtil.default.SUPPORTSMINMAX.indexOf(resp['__displayType__']) !== -1;
-    resp['__displayScope__'] = _SchemaUtil.default.DISPLAYSCOPE[resp.scope] || _SchemaUtil.default.DISPLAYSCOPE.NA;
-
-    if (resp.settings && resp.settings.permissions && resp.settings.permissions.SELF) {
-      resp['__userPermission__'] = resp.settings.permissions.SELF;
-    }
-
-    this._setMasterOverride(resp);
-
-    this._setSubSchemas(resp);
-
-    this._setUniqueness(resp);
-
-    return resp;
-  },
-  validate: function validate() {
-    var enumValidationError = this._validateEnumOneOf();
-
-    if (enumValidationError) {
-      return enumValidationError;
-    }
-
-    if (!this.get('__supportsMinMax__') || !this.get('__constraint__')) {
-      return undefined;
-    }
-
-    var constraitType = this.get('__constraint__');
-    var constraitHandler = this[constraintHandlers[constraitType]];
-
-    if (_underscoreWrapper.default.isFunction(constraitHandler)) {
-      return constraitHandler.call(this);
-    } else {
-      _Logger.default.warn('No constraint handler found for: ' + constraitType);
-
-      return undefined;
-    }
-  },
-  _checkBetweenConstraints: function _checkBetweenConstraints() {
-    var minVal = this.get('__minVal__');
-    var maxVal = this.get('__maxVal__');
-
-    if (!minVal && !maxVal) {
-      return;
-    }
-
-    if (!minVal) {
-      return {
-        __minVal__: 'Min value is required'
-      };
-    }
-
-    if (!maxVal) {
-      return {
-        __maxVal__: 'Max value is required'
-      };
-    }
-
-    var val = this._checkIntegerConstraints('__minVal__', 'Min value');
-
-    if (val) {
-      return val;
-    }
-
-    val = this._checkIntegerConstraints('__maxVal__', 'Max value');
-
-    if (val) {
-      return val;
-    }
-
-    if (+minVal >= +maxVal) {
-      return {
-        __maxVal__: 'Max val must be greater than min val'
-      };
-    }
-  },
-  _checkGreaterThanConstraint: function _checkGreaterThanConstraint() {
-    var minVal = this.get('__minVal__');
-
-    if (!minVal) {
-      return;
-    }
-
-    var val = this._checkIntegerConstraints('__minVal__', 'Min value');
-
-    if (val) {
-      return val;
-    }
-  },
-  _checkLessThanConstraint: function _checkLessThanConstraint() {
-    var maxVal = this.get('__maxVal__');
-
-    if (!maxVal) {
-      return;
-    }
-
-    var val = this._checkIntegerConstraints('__maxVal__', 'Max value');
-
-    if (val) {
-      return val;
-    }
-  },
-  _checkEqualsConstraint: function _checkEqualsConstraint() {
-    var equals = this.get('__equals__');
-
-    if (!equals) {
-      return;
-    }
-
-    var val = this._checkIntegerConstraints('__equals__', 'Constraint');
-
-    if (val) {
-      return val;
-    }
-  },
-  _checkIntegerConstraints: function _checkIntegerConstraints(field, name) {
-    var val = this.get(field);
-    var error = {};
-
-    if (isNaN(val)) {
-      error[field] = name + ' must be a number';
-      return error;
-    }
-
-    if (+val < 0) {
-      error[field] = name + ' must be greater than 0';
-      return error;
-    }
-  },
-  _setMasterOverride: function _setMasterOverride(resp) {
-    if (resp.settings && resp.settings.masterOverride && resp.settings.masterOverride) {
-      var masterOverrideValue = resp.settings.masterOverride.value;
-
-      if (_underscoreWrapper.default.isArray(masterOverrideValue) && !_underscoreWrapper.default.isEmpty(masterOverrideValue)) {
-        resp['__masterOverrideType__'] = 'OVERRIDE';
-        resp['__masterOverrideValue__'] = masterOverrideValue || [];
-      } else {
-        resp['__masterOverrideType__'] = resp.settings.masterOverride.type;
-      }
-    } else {
-      resp['__masterOverrideType__'] = 'INHERIT';
-    }
-  },
-  _setRangeConstraints: function _setRangeConstraints(resp) {
-    /* eslint complexity: [2, 11] */
-    if (resp['__displayType__'] === STRING) {
-      resp['__minVal__'] = resp.minLength;
-      resp['__maxVal__'] = resp.maxLength;
-    } else if (resp['__displayType__'] === INTEGER || resp['__displayType__'] === NUMBER) {
-      resp['__minVal__'] = resp.minimum;
-      resp['__maxVal__'] = resp.maximum;
-    }
-
-    if (resp['__minVal__'] && resp['__maxVal__']) {
-      if (resp['__minVal__'] === resp['__maxVal__']) {
-        resp['__constraint__'] = 'equals';
-        resp['__equals__'] = resp['__minVal__'];
-      } else {
-        resp['__constraint__'] = 'between';
-      }
-    } else if (!resp['__minVal__'] && resp['__maxVal__']) {
-      resp['__constraint__'] = 'lessThan';
-    } else if (!resp['__maxVal__'] && resp['__minVal__']) {
-      resp['__constraint__'] = 'greaterThan';
-    }
-  },
-  _setSubSchemas: function _setSubSchemas(resp) {
-    if (resp.allOf) {
-      resp['subSchemas'] = new SchemaPropertySubSchemaAllOfCollection(resp.allOf, {
-        parse: true
-      });
-    } else if (resp.oneOf) {
-      resp['subSchemas'] = new SchemaPropertySubSchemaOneOfCollection(resp.oneOf, {
-        parse: true
-      });
-    } else if (resp.noneOf) {
-      resp['subSchemas'] = new SchemaPropertySubSchemaNoneOfCollection(resp.noneOf, {
-        parse: true
-      });
-    }
-  },
-  _setUniqueness: function _setUniqueness(resp) {
-    var unique = resp && resp.unique;
-    resp['__unique__'] = !!(unique && (unique === _SchemaUtil.default.UNIQUENESS.UNIQUE_VALIDATED || unique === _SchemaUtil.default.UNIQUENESS.PENDING_UNIQUENESS));
-  },
-  _setLoginPattern: function _setLoginPattern() {
-    if (!this.get('__isLoginOfBaseSchema__')) {
-      return;
-    }
-
-    var pattern = this.get('pattern');
-
-    if (pattern === loginFormatNonePattern) {
-      this.set('__loginFormatRestriction__', _SchemaUtil.default.LOGINPATTERNFORMAT.NONE);
-    } else if (pattern) {
-      this.set('__loginFormatRestriction__', _SchemaUtil.default.LOGINPATTERNFORMAT.CUSTOM);
-      this.set('__loginFormatRestrictionCustom__', this._extractLoginPattern(pattern));
-    } else {
-      this.set('__loginFormatRestriction__', _SchemaUtil.default.LOGINPATTERNFORMAT.EMAIL);
-    }
-  },
-  _updateDisplayType: function _updateDisplayType() {
-    var type = this.get('type');
-
-    if (type === STRING && this.get('format')) {
-      this.set('__displayType__', _SchemaUtil.default.FORMATDISPLAYTYPE[this.get('format')]);
-    } else {
-      var items = this.get('items');
-      var arraytype = items && (items.format ? items.format : items.type);
-
-      if (type && arraytype) {
-        this.set('__displayType__', _SchemaUtil.default.ARRAYDISPLAYTYPE[getArrayTypeName(type, arraytype)]);
-      } else {
-        this.set('__displayType__', type);
-      }
-    }
-  },
-  _validateEnumOneOf: function _validateEnumOneOf() {
-    if (!this.get('__isEnumDefinedAndSupported__')) {
-      return;
-    }
-
-    var enumOneOf = this.get('__oneOf__') || [];
-
-    if (_underscoreWrapper.default.isEmpty(enumOneOf)) {
-      return {
-        __oneOf__: loc('model.validation.field.blank', 'courage')
-      };
-    }
-
-    if (!this._isValidateOneOfConstraint(enumOneOf)) {
-      var constraintType = this.get('__enumConstraintType__');
-      var errorTypeMsg = constraintTypeErrorMessages[constraintType];
-      return {
-        __oneOf__: errorTypeMsg
-      };
-    }
-  },
-  _isValidateOneOfConstraint: function _isValidateOneOfConstraint(values) {
-    var constraintType = this.get('__enumConstraintType__');
-    return _underscoreWrapper.default.all(values, function (value) {
-      return _EnumTypeHelper.default.isConstraintValueMatchType(value.const, constraintType);
-    });
-  },
-  toJSON: function toJSON() {
-    var json = _BaseModel.default.prototype.toJSON.apply(this, arguments);
-
-    json.settings = {
-      permissions: {}
-    };
-    json.settings.permissions['SELF'] = this.get('__userPermission__'); // omit "sensitive" filed will have default it value to false.
-
-    if (this.get('__isSensitive__')) {
-      json.settings.sensitive = this.get('__isSensitive__');
-    }
-
-    if (this.get('type') === 'image') {
-      json.type = 'object';
-      json.extendedType = 'image';
-    }
-
-    json = this._enumAssignment(json);
-    json = this._attributeOverrideToJson(json);
-    json = this._normalizeUnionValue(json);
-    json = this._patternAssignment(json);
-    json = this._uniquenessAssignment(json);
-    return json;
-  },
-  _attributeOverrideToJson: function _attributeOverrideToJson(json) {
-    var masterOverrideType = this.get('__masterOverrideType__');
-    var masterOverrideValue = this.get('__masterOverrideValue__');
-
-    if (masterOverrideType === 'OKTA_MASTERED') {
-      json.settings.masterOverride = {
-        type: 'OKTA_MASTERED'
-      };
-    } else if (masterOverrideType === 'OVERRIDE') {
-      json.settings.masterOverride = {
-        type: 'ORDERED_LIST',
-        value: []
-      };
-
-      if (masterOverrideValue instanceof _BaseCollection.default) {
-        _underscoreWrapper.default.each(masterOverrideValue.toJSON(), function (overrideProfile) {
-          json.settings.masterOverride.value.push(overrideProfile.id);
-        });
-      } else if (masterOverrideValue instanceof Array) {
-        json.settings.masterOverride.value = masterOverrideValue;
-      }
-
-      if (_underscoreWrapper.default.isEmpty(json.settings.masterOverride.value)) {
-        delete json.settings.masterOverride;
-      }
-    }
-
-    if (masterOverrideType === 'INHERIT') {
-      delete json.settings.masterOverride;
-    }
-
-    return json;
-  },
-
-  /**
-   * Only allow set "union" value when isScopeSelf is NONE and displayType is
-   * array of (string/number/integer), otherwise reset to default.
-   *
-   * @see /universal-directory/shared/views/components/UnionGroupValuesRadio.js
-   */
-  _normalizeUnionValue: function _normalizeUnionValue(json) {
-    if (!this.get('__isNoneScopeArrayType__')) {
-      json['union'] = undefined;
-    }
-
-    return json;
-  },
-  _enumAssignment: function _enumAssignment(json) {
-    if (!this.get('__isEnumDefinedAndSupported__')) {
-      return json;
-    } // backfill empty title by constraint
-
-
-    var enumOneOf = this._getEnumOneOfWithTitleCheck();
-
-    if (this.get('type') === 'array') {
-      delete json.items.enum;
-      json.items.oneOf = enumOneOf;
-    } else {
-      delete json.enum;
-      json.oneOf = enumOneOf;
-    }
-
-    return json;
-  },
-  _patternAssignment: function _patternAssignment(json) {
-    if (!this.get('__isLoginOfBaseSchema__') || !this.get('__loginFormatRestriction__')) {
-      return json;
-    }
-
-    switch (this.get('__loginFormatRestriction__')) {
-      case _SchemaUtil.default.LOGINPATTERNFORMAT.EMAIL:
-        delete json.pattern;
-        break;
-
-      case _SchemaUtil.default.LOGINPATTERNFORMAT.CUSTOM:
-        json.pattern = this._buildLoginPattern(this.get('__loginFormatRestrictionCustom__'));
-        break;
-
-      case _SchemaUtil.default.LOGINPATTERNFORMAT.NONE:
-        json.pattern = loginFormatNonePattern;
-        break;
-    }
-
-    return json;
-  },
-  _uniquenessAssignment: function _uniquenessAssignment(json) {
-    if (!this.get('__unique__')) {
-      delete json.unique;
-    } else if (!this.get('__isUniqueness__')) {
-      json.unique = _SchemaUtil.default.UNIQUENESS.UNIQUE_VALIDATED;
-    }
-
-    return json;
-  },
-
-  /**
-   * Character should be escaped except letters, digits and hyphen
-   */
-  _escapedRegexChar: function _escapedRegexChar(pattern, index) {
-    var char = pattern.charAt(index);
-
-    if (escapedLoginCharsRe.test(char)) {
-      return '\\' + char;
-    }
-
-    return char;
-  },
-  _buildLoginPattern: function _buildLoginPattern(pattern) {
-    var result = '';
-
-    for (var i = 0; i < pattern.length; i++) {
-      result = result + this._escapedRegexChar(pattern, i);
-    }
-
-    return '[' + result + ']+';
-  },
-  _extractLoginPattern: function _extractLoginPattern(pattern) {
-    var re = /^\[(.*)\]\+/;
-    var matches = pattern.match(re);
-    return matches ? matches[1].replace(/\\(.)/g, '$1') : pattern;
-  },
-  _getEnumOneOfWithTitleCheck: function _getEnumOneOfWithTitleCheck() {
-    var enumOneOf = this.get('__oneOf__');
-    return _underscoreWrapper.default.map(enumOneOf, function (value) {
-      if (_jqueryWrapper.default.trim(value.title) !== '') {
-        return value;
-      }
-
-      value.title = !_underscoreWrapper.default.isString(value.const) ? JSON.stringify(value.const) : value.const;
-      return value;
-    });
-  },
-  _updateTypeFormatConstraints: function _updateTypeFormatConstraints() {
-    var displayType = this.get('__displayType__'); // OKTA-31952 reset format according to its displayType
-
-    this.unset('format', {
-      silent: true
-    });
-    this.unset('items', {
-      silent: true
-    });
-    this.set(_SchemaUtil.default.DISPLAYTYPES[displayType]);
-
-    if (displayType !== NUMBER && displayType !== INTEGER) {
-      this.unset('minimum');
-      this.unset('maximum');
-    }
-
-    if (displayType !== STRING) {
-      this.unset('minLength');
-      this.unset('maxLength');
-    }
-
-    this.unset('__minVal__');
-    this.unset('__maxVal__');
-    this.unset('__equals__');
-    this.set('__supportsMinMax__', _SchemaUtil.default.SUPPORTSMINMAX.indexOf(this.get('__displayType__')) !== -1);
-  },
-  _updateMinMax: function _updateMinMax() {
-    var min;
-    var max;
-    var displayType = this.get('__displayType__');
-
-    if (displayType === STRING) {
-      min = 'minLength';
-      max = 'maxLength';
-    } else if (displayType === INTEGER || displayType === NUMBER) {
-      min = 'minimum';
-      max = 'maximum';
-    }
-
-    if (this.get('__minVal__')) {
-      this.set(min, parseInt(this.get('__minVal__'), 10));
-    } else {
-      this.unset(min);
-    }
-
-    if (this.get('__maxVal__')) {
-      this.set(max, parseInt(this.get('__maxVal__'), 10));
-    } else {
-      this.unset(max);
-    }
-  },
-  _convertEqualsToMinMax: function _convertEqualsToMinMax() {
-    var equals = this.get('__equals__');
-
-    if (equals) {
-      this.set('__minVal__', equals);
-      this.set('__maxVal__', equals);
-    }
-  },
-
-  /*
-   Normally we would use a derived property here but derived properties do not work with the model Clone function
-   so we use this workaround instead.
-   */
-  _setConstraintText: function _setConstraintText() {
-    var constraint = this.get('__constraint__');
-    var min = this.get('__minVal__');
-    var max = this.get('__maxVal__');
-    var equals = this.get('__equals__');
-
-    switch (constraint) {
-      case 'between':
-        this.set('__constraintText__', 'Between ' + min + ' and ' + max);
-        break;
-
-      case 'greaterThan':
-        this.set('__constraintText__', 'Greater than ' + min);
-        break;
-
-      case 'lessThan':
-        this.set('__constraintText__', 'Less than ' + max);
-        break;
-
-      case 'equals':
-        this.set('__constraintText__', 'Equals ' + equals);
-        break;
-
-      default:
-        this.set('__constraintText__', '');
-        break;
-    }
-  },
-  cleanup: function cleanup() {
-    if (this.get('__constraint__') === 'lessThan') {
-      this.unset('__minVal__');
-    } else if (this.get('__constraint__') === 'greaterThan') {
-      this.unset('__maxVal__');
-    }
-
-    if (this.get('scope') !== _SchemaUtil.default.SCOPE.SYSTEM) {
-      if (this.get('__isScopeSelf__') === true) {
-        this.set({
-          scope: _SchemaUtil.default.SCOPE.SELF
-        }, {
-          silent: true
-        });
-      } else {
-        this.unset('scope');
-      }
-    }
-
-    if (!this.get('__unique__')) {
-      this.unset('unique');
-    }
-  },
-
-  /**
-   * Since there is not an dedicated attribute to flag enum type,
-   * use enum values to determine whether the property is enum type or not.
-   */
-  isEnumType: function isEnumType() {
-    return !!this.getEnumValues();
-  },
-  getEnumValues: function getEnumValues() {
-    return this.get('oneOf') || this.get('enum') || this.get('items') && this.get('items')['oneOf'] || this.get('items') && this.get('items')['enum'];
-  },
-  detectHasEnumDefined: function detectHasEnumDefined() {
-    var enumValues = this.getEnumValues();
-
-    if (!enumValues) {
-      return;
-    }
-
-    this.set('__oneOf__', _EnumTypeHelper.default.convertToOneOf(enumValues));
-    this.set('__enumDefined__', true);
-  }
-});
-
-var SchemaPropertySchemaProperties = _BaseCollection.default.extend({
-  model: SchemaPropertySchemaProperty,
-  clone: function clone() {
-    return new this.constructor(this.toJSON({
-      verbose: true
-    }), {
-      parse: true
-    });
-  },
-  areAllReadOnly: function areAllReadOnly() {
-    return _underscoreWrapper.default.all(this.pluck('__isReadOnly__'));
-  },
-  createModelProperties: function createModelProperties() {
-    return this.reduce(function (p, schemaProperty) {
-      var type = schemaProperty.get('type');
-      p[schemaProperty.id] = _underscoreWrapper.default.clone(_SchemaUtil.default.DISPLAYTYPES[type]);
-
-      if (_SchemaUtil.default.SUPPORTSMINMAX.indexOf(type) !== -1) {
-        p[schemaProperty.id].minLength = schemaProperty.get('minLength');
-        p[schemaProperty.id].maxLength = schemaProperty.get('maxLength');
-      }
-
-      if (type === 'string') {
-        p[schemaProperty.id].format = schemaProperty.get('format');
-      }
-
-      return p;
-    }, {});
-  }
-});
-
-var _default = {
-  Model: SchemaPropertySchemaProperty,
-  Collection: SchemaPropertySchemaProperties
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/BaseController.js":
-/*!***************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/BaseController.js ***!
-  \***************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ./jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _BaseRouter = _interopRequireDefault(__webpack_require__(/*! ./BaseRouter */ "./node_modules/@okta/courage/src/util/BaseRouter.js"));
-
-var _SettingsModel = _interopRequireDefault(__webpack_require__(/*! ./SettingsModel */ "./node_modules/@okta/courage/src/util/SettingsModel.js"));
-
-var _StateMachine = _interopRequireDefault(__webpack_require__(/*! ./StateMachine */ "./node_modules/@okta/courage/src/util/StateMachine.js"));
-
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../views/BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint max-len: [2, 150] */
-function clean(obj) {
-  var res = {};
-
-  _underscoreWrapper.default.each(obj, function (value, key) {
-    if (!_underscoreWrapper.default.isNull(value)) {
-      res[key] = value;
-    }
-  });
-
-  return res;
-}
-/**
- * A Controller is our application control flow component.
- *
- * Typically it will:
- * - Initialize the models, controller and main views
- * - Listen to events
- * - Create, read, update and delete models
- * - Create modal dialogs, confirmation dialogs and alert dialogs
- * - Control the application flow
- *
- * The constructor is responsible for:
- * - Create the application state object
- * - Assign or creates the application settings object
- * - Create an instance of the main view with the relevant parameters
- *
- * See:
- * [Hello World Tutorial](https://github.com/okta/courage/wiki/Hello-World),
- * [Jasmine Spec](https://github.com/okta/okta-core/blob/master/WebContent/js/test/unit/spec/shared/util/BaseController_spec.js)
- *
- * @class module:Okta.Controller
- * @param {Object} options Options Hash
- * @param {SettingsModel} [options.settings] Application Settings Model
- * @param {String} options.el a jQuery selector string stating where to attach the controller in the DOM
- */
-
-
-var _default = _BaseView.default.extend(
-/** @lends module:Okta.Controller.prototype */
-{
-  constructor: function constructor() {
-    var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-    /* eslint max-statements: [2, 21], complexity: [2, 12] */
-    // If 'state' is passed down as options, use it, else create a 'new StateMachine()'
-    this.state = _underscoreWrapper.default.result(this, 'state');
-    var hasStateBeenInitialized = this.state instanceof _StateMachine.default || options.state instanceof _StateMachine.default;
-
-    if (!hasStateBeenInitialized) {
-      var stateData = _underscoreWrapper.default.defaults(clean(options.state), this.state || {}); // TODO:
-      // `framework/View.js set `this.state = options.state.`.
-      // Therefore we could consider to do
-      // 1. `options.state = new StateMachine()`
-      // 2. remove `delete options.state`
-
-
-      this.state = new _StateMachine.default(stateData);
-      delete options.state;
-    }
-
-    if (!options.settings) {
-      // allow the controller to live without a router
-      options.settings = new _SettingsModel.default(_underscoreWrapper.default.omit(options || {}, 'el'));
-      this.listen('notification', _BaseRouter.default.prototype._notify);
-      this.listen('confirmation', _BaseRouter.default.prototype._confirm);
-    }
-
-    _BaseView.default.call(this, options);
-
-    this.listenTo(this.state, '__invoke__', function () {
-      var args = _underscoreWrapper.default.toArray(arguments);
-
-      var method = args.shift();
-
-      if (_underscoreWrapper.default.isFunction(this[method])) {
-        this[method].apply(this, args);
-      }
-    });
-    var MainView; // if `this.View` is already a Backbone View
-
-    if (this.View && this.View.isCourageView) {
-      MainView = this.View;
-    } // if `this.View` is a pure function that returns a Backbone View
-    else if (_underscoreWrapper.default.result(this, 'View') && _underscoreWrapper.default.result(this, 'View').isCourageView) {
-      MainView = _underscoreWrapper.default.result(this, 'View');
-    }
-
-    if (MainView) {
-      this.add(new MainView(this.toJSON()));
-    }
-  },
-
-  /**
-   * The default values of our application state
-   * @type {Object}
-   * @default {}
-   */
-  state: {},
-
-  /**
-   * The main view this controller operate on
-   * @type {module:Okta.View}
-   * @default null
-   */
-  View: null,
-
-  /**
-   * Renders the {@link module:Okta.Controller#View|main view} after the DOM is ready
-   * in case the controller is the root component of the page (e.g there's no router)
-   */
-  render: function render() {
-    var args = arguments;
-    var self = this;
-    (0, _jqueryWrapper.default)(function () {
-      _BaseView.default.prototype.render.apply(self, args);
-    });
-    return this;
-  },
-
-  /**
-   * Creates the view constructor options
-   * @param {Object} [options] Extra options
-   * @return {Object} The view constructor options
-   */
-  toJSON: function toJSON(options) {
-    return _underscoreWrapper.default.extend(_underscoreWrapper.default.pick(this, 'state', 'settings', 'collection', 'model'), options || {});
-  },
-
-  /**
-   * Removes the child views, empty the DOM element and stop listening to events
-   */
-  remove: function remove() {
-    this.removeChildren();
-    this.stopListening();
-    this.$el.empty();
-    return this;
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/BaseRouter.js":
-/*!***********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/BaseRouter.js ***!
-  \***********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ./jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ./Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
-
-var _SettingsModel = _interopRequireDefault(__webpack_require__(/*! ./SettingsModel */ "./node_modules/@okta/courage/src/util/SettingsModel.js"));
-
-var _ConfirmationDialog = _interopRequireDefault(__webpack_require__(/*! ConfirmationDialog */ "./src/empty.js"));
-
-var _Notification = _interopRequireDefault(__webpack_require__(/*! ../views/components/Notification */ "./node_modules/@okta/courage/src/views/components/Notification.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint max-len: [2, 150], max-params: [2, 7] */
-function getRoute(router, route) {
-  var root = _underscoreWrapper.default.result(router, 'root') || '';
-
-  if (root && _underscoreWrapper.default.isString(route)) {
-    return [root, route].join('/').replace(/\/{2,}/g, '/');
-  }
-
-  return route;
-}
-/**
- * BaseRouter is a standard [Backbone.Router](http://backbonejs.org/#Router)
- * with a few additions:
- * - Explicit mapping between routes and controllers
- * - Support for rendering notification and confirmation dialogs
- *
- * Checkout the [Hello World Tutorial](https://github.com/okta/courage/wiki/Hello-World)
- * for a step-by-step guide to using this.
- *
- * @class module:Okta.Router
- * @extends external:Backbone.Router
- * @param {Object} options options hash
- * @param {String} options.el a jQuery selector string stating where to attach the controller in the DOM
- */
-
-
-var _default = _backbone.default.Router.extend(
-/** @lends module:Okta.Router.prototype */
-{
-  /**
-   * The root URL for the router. When setting {@link http://backbonejs.org/#Router-routes|routes},
-   * it will be prepended to each route.
-   * @type {String|Function}
-   */
-  root: '',
-  listen: _Notification.default.prototype.listen,
-  constructor: function constructor() {
-    var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-    this.el = options.el;
-    /**
-     * Make sure `this.settings` has been set before invoke super - `Backbone.Router.apply`,
-     * which will invoke `this.initialize`, which could use `this.settings`.
-     *
-     * In theory we can set `this.settings` in `this.initialize` and assume `child.initialize`
-     * will invoke `super.initialize` first. But in reality, `child.initialize` doesn't call
-     * `super.initialize` at all.
-     */
-
-    this.settings = new _SettingsModel.default(_underscoreWrapper.default.omit(options, 'el'));
-
-    if (options.root) {
-      this.root = options.root;
-    }
-
-    _backbone.default.Router.apply(this, arguments);
-
-    this.listen('notification', this._notify);
-    this.listen('confirmation', this._confirm);
-  },
-
-  /**
-   * Fires up a confirmation dialog
-   *
-   * @param  {Object} options Options Hash
-   * @param  {String} options.title The title
-   * @param  {Array<string>} buttonOrder The order of the buttons
-   * @param  {String} options.subtitle The explain text
-   * @param  {String} options.save The text for the save button
-   * @param  {Function} options.ok The callback function to run when hitting "OK"
-   * @param  {String} options.cancel The text for the cancel button
-   * @param  {Function} options.cancelFn The callback function to run when hitting "Cancel"
-   * @param  {Boolean} options.noCancelButton Don't render the cancel button (useful for alert dialogs)
-   * @param  {Boolean} options.noSubmitButton Don't render the primary button (useful for alert dialogs)
-   * @private
-   *
-   * @return {Okta.View} the dialog view
-   */
-  _confirm: function _confirm(options) {
-    options || (options = {});
-
-    var Dialog = _ConfirmationDialog.default.extend(_underscoreWrapper.default.pick(options, 'title', 'subtitle', 'save', 'ok', 'cancel', 'cancelFn', 'noCancelButton', 'noSubmitButton', 'content', 'danger', 'type', 'closeOnOverlayClick', 'buttonOrder'));
-
-    var dialog = new Dialog({
-      model: this.settings
-    }); // The model is here because itsa part of the BaseForm paradigm.
-    // It will be ignored in the context of a confirmation dialog.
-
-    dialog.render();
-    return dialog; // test hook
-  },
-
-  /**
-   * Fires up a notification banner
-   *
-   * @param  {Object} options Options Hash
-   * @return {Okta.View} the notification view
-   * @private
-   */
-  _notify: function _notify(options) {
-    var notification = new _Notification.default(options);
-    (0, _jqueryWrapper.default)('#content').prepend(notification.render().el);
-    return notification; // test hook
-  },
-
-  /**
-   * Renders a Controller
-   * This will initialize new instance of a controller and call render on it
-   *
-   * @param  {Okta.Controller} Controller The controller Class we which to render
-   * @param  {Object} [options] Extra options to the controller constructor
-   */
-  render: function render(Controller, options) {
-    this.unload();
-    options = _underscoreWrapper.default.extend(_underscoreWrapper.default.pick(this, 'settings', 'el'), options || {});
-    this.controller = new Controller(options);
-    this.controller.render();
-  },
-
-  /**
-   * Starts the backbone history object
-   *
-   * Waits for the dom to be ready before calling `Backbone.history.start()` (IE issue).
-   *
-   * See [Backbone History](http://backbonejs.org/#History) for more information.
-   */
-  start: function start() {
-    var args = arguments;
-    (0, _jqueryWrapper.default)(function () {
-      if (_backbone.default.History.started) {
-        _Logger.default.error('History has already been started');
-
-        return;
-      }
-
-      _backbone.default.history.start.apply(_backbone.default.history, args);
-    });
-  },
-
-  /**
-   * Removes active controller and frees up event listeners
-   */
-  unload: function unload() {
-    if (this.controller) {
-      this.stopListening(this.controller);
-      this.stopListening(this.controller.state);
-      this.controller.remove();
-    }
-  },
-  route: function route(_route, name, callback) {
-    return _backbone.default.Router.prototype.route.call(this, getRoute(this, _route), name, callback);
-  },
-  navigate: function navigate(fragment, options) {
-    return _backbone.default.Router.prototype.navigate.call(this, getRoute(this, fragment), options);
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/ButtonFactory.js":
-/*!**************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/ButtonFactory.js ***!
-  \**************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _BaseButtonLink = _interopRequireDefault(__webpack_require__(/*! ../views/components/BaseButtonLink */ "./node_modules/@okta/courage/src/views/components/BaseButtonLink.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint '@okta/okta-ui/no-deprecated-methods': [0, [{ name: 'BaseButtonLink.extend', use: 'Okta.createButton'}, ]] */
-
-/**
- * A factory method wrapper for {@link BaseButtonLink} creation
- * @class module:Okta.internal.util.ButtonFactory
- */
-function normalizeEvents(options) {
-  var events = _underscoreWrapper.default.extend(options.click ? {
-    click: options.click
-  } : {}, options.events || {});
-
-  var target = {};
-
-  _underscoreWrapper.default.each(events, function (fn, eventName) {
-    target[eventName] = function (e) {
-      if (!options.href) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-
-      if (!(this.disabled && eventName === 'click')) {
-        fn.apply(this, arguments);
-      }
-    };
-  });
-
-  return target;
-}
-
-var _default =
-/** @lends module:Okta.internal.util.ButtonFactory */
-{
-  /**
-   * Creates a {@link module:Okta.internal.views.components.BaseButtonLink|BaseButtonLink}.
-   * @param  {Object} options Options hash
-   * @param  {String} [options.title] The button text
-   * @param  {String} [options.icon]
-   * CSS class for the icon to display. See [Style guide](http://rain.okta1.com:1802/su/dev/style-guide#icons)
-   * @param {String} [options.href] The button link
-   * @param {Function} [options.click] On click callback
-   * @param {Object} [options.events] a [Backbone events](http://backbonejs.org/#View-delegateEvents) hash
-   * @returns {module:Okta.internal.views.components.BaseButtonLink} BaseButtonLink prototype ("class")
-   */
-  create: function create(options) {
-    options = _underscoreWrapper.default.clone(options);
-    options.attrs = options.attributes;
-    delete options.attributes;
-    return _BaseButtonLink.default.extend(_underscoreWrapper.default.extend(options, {
-      events: normalizeEvents(options)
-    }));
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Class.js":
-/*!******************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Class.js ***!
-  \******************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function Class(options) {
-  this.options = _underscoreWrapper.default.clone(options || {});
-  this.cid = _underscoreWrapper.default.uniqueId('class');
-  this.initialize.apply(this, arguments);
-}
-
-_underscoreWrapper.default.extend(Class.prototype, _backbone.default.Events, {
-  initialize: function initialize() {}
-});
-
-Class.extend = _backbone.default.Model.extend;
-var _default = Class;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Clipboard.js":
-/*!**********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Clipboard.js ***!
-  \**********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _clipboard = _interopRequireDefault(__webpack_require__(/*! clipboard */ "./node_modules/clipboard/lib/clipboard.js"));
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ./jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _View = _interopRequireDefault(__webpack_require__(/*! ../framework/View */ "./node_modules/@okta/courage/src/framework/View.js"));
-
-var _Class = _interopRequireDefault(__webpack_require__(/*! ./Class */ "./node_modules/@okta/courage/src/util/Class.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var Clipboard = _clipboard.default;
-var OPTIONS = ['success', 'error', 'target', 'text'];
-
-var ClipboardClipboardWrapper = _Class.default.extend({
-  initialize: function initialize(el, options) {
-    /* eslint complexity:0, max-statements: [2, 24] */
-    options = _underscoreWrapper.default.pick(options || {}, OPTIONS);
-    var trigger;
-    var target;
-    var text;
-
-    if (_underscoreWrapper.default.isString(el)) {
-      trigger = el;
-    }
-
-    if (_underscoreWrapper.default.isElement(el)) {
-      trigger = el;
-    }
-
-    if (el instanceof _jqueryWrapper.default) {
-      trigger = el.selector;
-    }
-
-    if (el instanceof _View.default) {
-      trigger = el.el;
-    }
-
-    if (_underscoreWrapper.default.isFunction(options.target)) {
-      target = options.target;
-    }
-
-    if (_underscoreWrapper.default.isElement(options.target)) {
-      target = _underscoreWrapper.default.constant(options.target);
-    }
-
-    if (_underscoreWrapper.default.isString(options.text)) {
-      text = _underscoreWrapper.default.constant(options.text);
-    } else if (_underscoreWrapper.default.isFunction(options.text)) {
-      text = options.text;
-    }
-
-    this.__instance = new Clipboard(trigger, {
-      target: target,
-      text: text
-    });
-    this.done = _underscoreWrapper.default.partial(this.__setCallback, 'success');
-    this.error = _underscoreWrapper.default.partial(this.__setCallback, 'error');
-    this.done(options.success);
-    this.error(options.error);
-  },
-  __setCallback: function __setCallback(event, callback) {
-    if (!_underscoreWrapper.default.isFunction(callback)) {
-      return;
-    }
-
-    this.__instance.on(event, callback);
-
-    return this.__instance;
-  }
-});
-/**
- * @class Clipboard
- * @abstract
- *
- * Abstract class that initializes a Clipboard
- *   https://clipboardjs.com/
- *
- * ### Example:
- *
- *  ```javascript
- *  //attach a selector
- *  Clipboard.attach('.copy-button');
- *
- *  //attach a node, and set a constant string
- *  Clipboard.attach(buttonView.el, {
- *    text: 'this is the content'
- *  });
- *
- *  //attach a view, set text dynamically, and set callback
- *  Clipboard.attach(buttonView, {
- *    text: function (triggerNode) {
- *      return $(triggerNode).attr('foo') + model.get('userName');
- *    }
- *  }).done(function (targetNode) {
- *    var msg = ['"', targetNode.text, '" is copied'].join('');
- *    view.notify('success', msg);
- *  });
- *
- *  //attach a jquery object, set the target node, and set callback
- *  Clipboard.attach($('.customizeTarget'), {
- *    target: function (triggerNode) {
- *      return triggerNode;
- *    },
- *    success: function (targetNode) {
- *      view.notify('success', 'copied!');
- *    }
- *  });
- *
- * ```
- */
-
-
-var _default = {
-  /**
-   * @param {String|Node|View|jQuery} [el] el could be a selector (recommended),
-   *           a dom node, a view or a jquery object
-   * @param {Object} [options] Options hash
-   * @param  {Node|Function} [options.target] a static dom node
-   *           or a function that takes trigger node and returns a target node
-   * @param {String|Function} [options.text] a static string or a function that returns a string dynamically
-   * @param {Function} [options.success] success callback
-   * @param {Function} [options.error] error callback
-   * @return {Object} The clipboard object
-   */
-  attach: function attach(el, options) {
-    return new ClipboardClipboardWrapper(el, options);
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Cookie.js":
-/*!*******************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Cookie.js ***!
-  \*******************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _js = _interopRequireDefault(__webpack_require__(/*! vendor/lib/js.cookie */ "./node_modules/@okta/courage/src/vendor/lib/js.cookie.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var SECURED_COOKIE = /^https/.test(window.location.href);
-var _default = {
-  setCookie: function setCookie(name, value, options) {
-    _js.default.set(name, value, _underscoreWrapper.default.defaults(options || {}, {
-      secure: SECURED_COOKIE,
-      path: '/'
-    }));
-  },
-  getCookie: function getCookie() {
-    return _js.default.get.apply(_js.default, arguments);
-  },
-  removeCookie: function removeCookie() {
-    return _js.default.remove.apply(_js.default, arguments);
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Keys.js":
-/*!*****************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Keys.js ***!
-  \*****************************************************/
-/***/ (function(module, exports) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-var _default = {
-  UP: 38,
-  DOWN: 40,
-  DEL: 46,
-  TAB: 9,
-  RETURN: 13,
-  ENTER: 13,
-  ESC: 27,
-  COMMA: 188,
-  PAGEUP: 33,
-  PAGEDOWN: 34,
-  SPACE: 32,
-  BACKSPACE: 8,
-  __isKey: function __isKey(e, key) {
-    return (e.which || e.keyCode) === this[key];
-  },
-  isEnter: function isEnter(e) {
-    return this.__isKey(e, 'ENTER');
-  },
-  isEsc: function isEsc(e) {
-    return this.__isKey(e, 'ESC');
-  },
-  isSpaceBar: function isSpaceBar(e) {
-    return this.__isKey(e, 'SPACE');
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Logger.js":
-/*!*******************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Logger.js ***!
-  \*******************************************************/
-/***/ (function(module, exports) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-function _log(level, args) {
-  if (window.console && window.okta && window.okta.debug) {
-    window.console[level].apply(window.console, args);
-  }
-}
-/**
- * Utility library of logging functions.
- * @class module:Okta.Logger
- */
-
-
-var _default =
-/** @lends module:Okta.Logger */
-{
-  /**
-   * See [console.trace](https://developer.mozilla.org/en-US/docs/Web/API/Console.trace)
-   * @static
-   */
-  trace: function trace() {
-    return _log('trace', arguments);
-  },
-
-  /**
-   * See [console.dir](https://developer.mozilla.org/en-US/docs/Web/API/Console.dir)
-   * @static
-   */
-  dir: function dir() {
-    return _log('dir', arguments);
-  },
-
-  /**
-   * See [console.time](https://developer.mozilla.org/en-US/docs/Web/API/Console.time)
-   * @static
-   */
-  time: function time() {
-    return _log('time', arguments);
-  },
-
-  /**
-   * See [console.timeEnd](https://developer.mozilla.org/en-US/docs/Web/API/Console.timeEnd)
-   * @static
-   */
-  timeEnd: function timeEnd() {
-    return _log('timeEnd', arguments);
-  },
-
-  /**
-   * See [console.group](https://developer.mozilla.org/en-US/docs/Web/API/Console.group)
-   * @static
-   */
-  group: function group() {
-    return _log('group', arguments);
-  },
-
-  /**
-   * See [console.groupEnd](https://developer.mozilla.org/en-US/docs/Web/API/Console.groupEnd)
-   * @static
-   */
-  groupEnd: function groupEnd() {
-    return _log('groupEnd', arguments);
-  },
-
-  /**
-   * See [console.assert](https://developer.mozilla.org/en-US/docs/Web/API/Console.assert)
-   * @static
-   */
-  assert: function assert() {
-    return _log('assert', arguments);
-  },
-
-  /**
-   * See [console.log](https://developer.mozilla.org/en-US/docs/Web/API/Console.log)
-   * @static
-   */
-  log: function log() {
-    return _log('log', arguments);
-  },
-
-  /**
-   * See [console.info](https://developer.mozilla.org/en-US/docs/Web/API/Console.info)
-   * @static
-   */
-  info: function info() {
-    return _log('info', arguments);
-  },
-
-  /**
-   * See [console.warn](https://developer.mozilla.org/en-US/docs/Web/API/Console.warn)
-   * @static
-   */
-  warn: function warn() {
-    return _log('warn', arguments);
-  },
-
-  /**
-   * See [console.error](https://developer.mozilla.org/en-US/docs/Web/API/Console.error)
-   * @static
-   */
-  error: function error() {
-    return _log('error', arguments);
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/SchemaUtil.js":
-/*!***********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/SchemaUtil.js ***!
-  \***********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ./StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var loc = _StringUtil.default.localize;
-var SchemaUtils = {
-  STRING: 'string',
-  NUMBER: 'number',
-  INTEGER: 'integer',
-  BOOLEAN: 'boolean',
-  OBJECT: 'object',
-  FORMATDISPLAYTYPE: {
-    'date-time': 'date',
-    uri: 'uri',
-    email: 'email',
-    // TODO: settle on using EITHER underscores OR hyphens --- not both (OKTA-202818)
-    'country-code': 'country-code',
-    'language-code': 'language-code',
-    'country_code': 'country_code',
-    'language_code': 'language_code',
-    locale: 'locale',
-    timezone: 'timezone',
-    'ref-id': 'reference'
-  },
-  ARRAYDISPLAYTYPE: {
-    arrayofobject: 'arrayofobject',
-    arrayofstring: 'arrayofstring',
-    arrayofnumber: 'arrayofnumber',
-    arrayofinteger: 'arrayofinteger',
-    'arrayofref-id': 'arrayofref-id'
-  },
-  DISPLAYTYPES: {
-    date: {
-      type: 'string',
-      format: 'date-time'
-    },
-    uri: {
-      type: 'string',
-      format: 'uri'
-    },
-    email: {
-      type: 'string',
-      format: 'email'
-    },
-    // TODO: Resolve inconsistencies in hyphens vs. underscores for these properties (OKTA-202818)
-    // use country-code if attribute should be restricted to country code type
-    'country-code': {
-      type: 'string',
-      format: 'country-code'
-    },
-    'language-code': {
-      type: 'string',
-      format: 'language-code'
-    },
-    'country_code': {
-      type: 'string'
-    },
-    'language_code': {
-      type: 'string'
-    },
-    locale: {
-      type: 'string',
-      format: 'locale'
-    },
-    timezone: {
-      type: 'string',
-      format: 'timezone'
-    },
-    string: {
-      type: 'string'
-    },
-    number: {
-      type: 'number'
-    },
-    boolean: {
-      type: 'boolean'
-    },
-    integer: {
-      type: 'integer'
-    },
-    reference: {
-      type: 'string',
-      format: 'ref-id'
-    },
-    arrayofobject: {
-      type: 'array',
-      items: {
-        type: 'object'
-      }
-    },
-    arrayofstring: {
-      type: 'array',
-      items: {
-        type: 'string'
-      }
-    },
-    arrayofnumber: {
-      type: 'array',
-      items: {
-        type: 'number'
-      }
-    },
-    arrayofinteger: {
-      type: 'array',
-      items: {
-        type: 'integer'
-      }
-    },
-    'arrayofref-id': {
-      type: 'array',
-      items: {
-        type: 'string',
-        format: 'ref-id'
-      }
-    },
-    image: {
-      type: 'image'
-    },
-    password: {
-      type: 'string'
-    }
-  },
-  SUPPORTSMINMAX: ['string', 'number', 'integer', 'password'],
-  SUPPORTENUM: ['string', 'number', 'integer', 'object', 'arrayofstring', 'arrayofnumber', 'arrayofinteger', 'arrayofobject'],
-  DATATYPE: {
-    string: 'string',
-    number: 'number',
-    boolean: 'boolean',
-    integer: 'integer',
-    date: 'datetime',
-    object: 'object',
-    arrayofobject: 'object array',
-    arrayofstring: 'string array',
-    arrayofnumber: 'number array',
-    arrayofinteger: 'integer array',
-    'arrayofref-id': 'reference array',
-    // TODO: settle on using EITHER underscores OR hyphens --- not both (OKTA-202818)
-    'country-code': 'country code',
-    'language-code': 'language code',
-    'country_code': 'country code',
-    'language_code': 'language code',
-    reference: 'reference',
-    timezone: 'timezone',
-    image: 'image'
-  },
-  MUTABILITY: {
-    READONLY: 'READ_ONLY',
-    WRITEONLY: 'WRITE_ONLY',
-    READWRITE: 'READ_WRITE',
-    IMMUTABLE: 'IMMUTABLE'
-  },
-  SCOPE: {
-    NONE: 'NONE',
-    SELF: 'SELF',
-    SYSTEM: 'SYSTEM'
-  },
-  DISPLAYSCOPE: {
-    SELF: 'User personal',
-    SYSTEM: 'System',
-    NA: 'None'
-  },
-  UNION: {
-    DISABLE: 'DISABLE',
-    ENABLE: 'ENABLE'
-  },
-  UNION_OPTIONS: {
-    DISABLE: loc('universal-directory.profiles.attribute.form.union.enable.display', 'courage'),
-    ENABLE: loc('universal-directory.profiles.attribute.form.union.disable.display', 'courage')
-  },
-  PERMISSION: {
-    HIDE: 'HIDE',
-    READ_ONLY: 'READ_ONLY',
-    WRITE_ONLY: 'WRITE_ONLY',
-    READ_WRITE: 'READ_WRITE'
-  },
-  ENDUSER_ATTRIBUTE_PERMISSION_OPTIONS: {
-    HIDE: loc('universal-directory.profiles.attribute.enduser.permission.hide', 'courage'),
-    READ_ONLY: loc('universal-directory.profiles.attribute.enduser.permission.readonly', 'courage'),
-    READ_WRITE: loc('universal-directory.profiles.attribute.enduser.permission.readwrite', 'courage')
-  },
-  ATTRIBUTE_LEVEL_MASTERING_OPTIONS: {
-    INHERIT: loc('universal-directory.profiles.attribute.source.inherit', 'courage'),
-    OKTA_MASTERED: loc('universal-directory.profiles.attribute.source.oktamastered', 'courage'),
-    OVERRIDE: loc('universal-directory.profiles.attribute.source.override', 'courage')
-  },
-  USERNAMETYPE: {
-    NONE: 'non-username',
-    OKTA_TO_APP: 'okta-to-app-username',
-    OKTA_TO_AD: 'okta-to-ad-username',
-    APP_TO_OKTA: 'app-to-okta-username',
-    IDP_TO_OKTA: 'idp-to-okta-username'
-  },
-  LOGINPATTERNFORMAT: {
-    EMAIL: 'EMAIL',
-    CUSTOM: 'CUSTOM',
-    NONE: 'NONE'
-  },
-  UNIQUENESS: {
-    NOT_UNIQUE: 'NOT_UNIQUE',
-    PENDING_UNIQUENESS: 'PENDING_UNIQUENESS',
-    UNIQUE_VALIDATED: 'UNIQUE_VALIDATED'
-  },
-
-  /*
-   * Get a display string for a schema attribute type.
-   * @param {String} type Type of an attribute
-   * @param {String} format Format of an attribute
-   * @param {String} itemType Item type of an attribute if an array
-   * @param {String} defaultValue The default value if an attribute type is undefined
-   * @return {String} the display value
-   */
-  getDisplayType: function getDisplayType(type, format, itemType, defaultValue) {
-    var displayType; // type is undefined for
-    // - an un-mapped source attribute from mapping
-    // - an source attribute which is mapped to username target attribute
-
-    if (type) {
-      // format is only defined for complicated types (ex. reference, date time, array)
-      // not for simple types (ex. string, integer, boolean)
-      if (format) {
-        displayType = this.FORMATDISPLAYTYPE[format];
-      } else {
-        // itemType is only defined for array type
-        // to specify an array element type (ex. string, integer, number)
-        displayType = itemType ? this.ARRAYDISPLAYTYPE[type + 'of' + itemType] : type;
-      }
-    }
-
-    if (!displayType) {
-      displayType = typeof defaultValue === 'undefined' ? '' : defaultValue;
-    }
-
-    return displayType;
-  },
-
-  /*
-   * Get attribute mapping source attribute username type
-   * @param {String} mappingDirection
-   * @param {String} targetName The mapping target attribute name
-   * @param {String} appName The app name that's mapped to/from Okta
-   * @return {String} the source attribute username type value
-   */
-  // eslint-disable-next-line complexity
-  getSourceUsernameType: function getSourceUsernameType(mappingDirection, targetName, appName) {
-    var sourceUsernameType = this.USERNAMETYPE.NONE;
-    /* eslint complexity: [2, 7] */
-
-    if (mappingDirection === 'oktaToApp') {
-      if (targetName === 'userName') {
-        sourceUsernameType = this.USERNAMETYPE.OKTA_TO_APP;
-      } else if (targetName === 'cn' && appName === 'active_directory') {
-        sourceUsernameType = this.USERNAMETYPE.OKTA_TO_AD;
-      }
-    } else if (mappingDirection === 'appToOkta' && targetName === 'login') {
-      if (appName === 'saml_idp') {
-        sourceUsernameType = this.USERNAMETYPE.IDP_TO_OKTA;
-      } else {
-        sourceUsernameType = this.USERNAMETYPE.APP_TO_OKTA;
-      }
-    }
-
-    return sourceUsernameType;
-  },
-  isArrayDataType: function isArrayDataType(type) {
-    return _underscoreWrapper.default.contains(_underscoreWrapper.default.values(this.ARRAYDISPLAYTYPE), type);
-  },
-  isObjectDataType: function isObjectDataType(type) {
-    return this.DATATYPE.object === type;
-  }
-};
-var _default = SchemaUtils;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/SettingsModel.js":
-/*!**************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/SettingsModel.js ***!
-  \**************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Model = _interopRequireDefault(__webpack_require__(/*! ../models/Model */ "./node_modules/@okta/courage/src/models/Model.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/**
- * @class SettingsModel
- * @extends {Okta.Model}
- * @private
- */
-var _default = _Model.default.extend({
-  local: function local() {
-    var settings = window.okta && window.okta.settings || {};
-    var theme = window.okta && window.okta.theme || '';
-    return {
-      orgId: ['string', false, settings.orgId],
-      orgName: ['string', false, settings.orgName],
-      serverStatus: ['string', false, settings.serverStatus],
-      persona: ['string', false, settings.persona],
-      isDeveloperConsole: ['boolean', false, settings.isDeveloperConsole],
-      isPreview: ['boolean', false, settings.isPreview],
-      permissions: ['array', true, settings.permissions || []],
-      theme: ['string', false, theme]
-    };
-  },
-  constructor: function constructor() {
-    _Model.default.apply(this, arguments);
-
-    this.features = window._features || [];
-  },
-
-  /**
-   * Checks if the user have a feature flag enabled (Based of the org level feature flag)
-   * @param  {String}  feature Feature name
-   * @return {Boolean}
-   */
-  hasFeature: function hasFeature(feature) {
-    return _underscoreWrapper.default.contains(this.features, feature);
-  },
-
-  /**
-   * Checks if any of the given feature flags are enabled (Based of the org level feature flags)
-   * @param  {Array}  featureArray Features names
-   * @return {Boolean} true if any of the give features are enabled. False otherwise
-   */
-  hasAnyFeature: function hasAnyFeature(featureArray) {
-    return _underscoreWrapper.default.some(featureArray, this.hasFeature, this);
-  },
-
-  /**
-   * Checks if the user have a specific permission (based on data passed from JSP)
-   * @param  {String}  permission Permission name
-   * @return {Boolean}
-   */
-  hasPermission: function hasPermission(permission) {
-    return _underscoreWrapper.default.contains(this.get('permissions'), permission);
-  },
-
-  /**
-   * Checks if the org has ds theme set
-   * @return {Boolean}
-   */
-  isDsTheme: function isDsTheme() {
-    return this.get('theme') === 'dstheme';
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/StateMachine.js":
-/*!*************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/StateMachine.js ***!
-  \*************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Model = _interopRequireDefault(__webpack_require__(/*! ../models/Model */ "./node_modules/@okta/courage/src/models/Model.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/**
- * @class StateMachine
- * @extends Okta.Model
- * @private
- *
- * A state object that holds the applciation state
- */
-var _default = _Model.default.extend({
-  /**
-   * Invokes a method on the applicable {@link Okta.Controller}
-   *
-   * ```javascript
-   * state.invoke('methodName', 'param1', 'param2')
-   * // Will call
-   * contoller.methodName('param1', 'param2')
-   * ```
-   * @param {String} methodName the name of the controller method to invoke on the controller
-   */
-  invoke: function invoke() {
-    var args = _underscoreWrapper.default.toArray(arguments);
-
-    args.unshift('__invoke__');
-    this.trigger.apply(this, args);
-  }
-});
-
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/StringUtil.js":
-/*!***********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/StringUtil.js ***!
-  \***********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ./jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _oktaI18nBundles = _interopRequireDefault(__webpack_require__(/*! okta-i18n-bundles */ "okta-i18n-bundles"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var entityMap = {
-  '&amp;': '&',
-  '&lt;': '<',
-  '&gt;': '>',
-  '&quot;': '"',
-  '&#39;': '\'',
-  '&#039;': '\'',
-  '&#x2F;': '/'
-};
-var emailValidator = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@(?!-)((\[?[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\]?)|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
-/**
-* Converts the locale code identifier from "${languageCode}-${countryCode}" to "${languageCode}_${countryCode}"
-* Follows the ISO-639-1 language code and 2-letter ISO-3166-1-alpha-2 country code structure.
-* @param {String} locale code identifier
-* @return {String} converted locale code identifier
-*/
-
-var parseLocale = function parseLocale(locale) {
-  if (/-/.test(locale)) {
-    var parts = locale.split('-');
-    parts[1] = parts[1].toUpperCase();
-    return parts.join('_');
-  }
-
-  return locale;
-};
-/* eslint max-len: 0*/
-
-/**
- * Returns the language bundle based on the current locale.
- * - If a locale is not provided, default to English ('en')
- * - Legacy Support: If the named language bundle does not exist, fall back to the default named bundle.
- *
- * @param {*} bundleName
- */
-
-
-function getBundle(bundleName) {
-  if (!bundleName) {
-    return _oktaI18nBundles.default[_underscoreWrapper.default.keys(_oktaI18nBundles.default)[0]];
-  }
-
-  var locale = parseLocale(window && window.okta && window.okta.locale) || 'en';
-  return _oktaI18nBundles.default["".concat(bundleName, "_").concat(locale)] || _oktaI18nBundles.default[bundleName];
-}
-/**
- *
- * CustomEvent polyfill for IE
- * https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent/CustomEvent#polyfill
- */
-
-
-function IECustomEvent(event, params) {
-  params = params || {
-    bubbles: false,
-    cancelable: false,
-    detail: null
-  };
-  var evt = document.createEvent('CustomEvent');
-  evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
-  return evt;
-}
-/**
- * Call the window.okta.emitL10nError function if it is defined
- * @param {String} key The i18n key
- * @param {String} bundleName The i18n bundle name
- * @param {String} reason Could be 'bundle' (Bundle not found), 'key' (Key not found) or 'parameters' (Parameters mismatch).
- */
-
-
-function emitL10nError(key, bundleName, reason) {
-  // CustomEvent polyfill for IE
-  if (!window.CustomEvent) {
-    window.CustomEvent = IECustomEvent;
-  } // dispatchEvent for sentry
-
-
-  if (typeof window.CustomEvent === 'function') {
-    var event = new CustomEvent('okta-i18n-error', {
-      detail: {
-        type: 'l10n-error',
-        key: key,
-        bundleName: bundleName,
-        reason: reason
-      }
-    });
-    document.dispatchEvent(event);
-  }
-}
-
-var StringUtil =
-/** @lends module:Okta.internal.util.StringUtil */
-{
-  /** @static */
-  sprintf: function sprintf() {
-    var args = Array.prototype.slice.apply(arguments);
-    var value = args.shift();
-    var oldValue = value;
-    /* eslint max-statements: [2, 15] */
-
-    function triggerError() {
-      throw new Error('Mismatch number of variables: ' + arguments[0] + ', ' + JSON.stringify(args));
-    }
-
-    for (var i = 0, l = args.length; i < l; i++) {
-      var entity = args[i];
-      var regex = new RegExp('\\{' + i + '\\}', 'g');
-      value = value.replace(regex, entity);
-
-      if (entity === undefined || entity === null || value === oldValue) {
-        triggerError();
-      }
-
-      oldValue = value;
-    }
-
-    if (/\{[\d+]\}/.test(value)) {
-      triggerError();
-    }
-
-    return value;
-  },
-
-  /**
-   * Converts a URI encoded query string into a hash map
-   * @param  {String} query The query string
-   * @return {Object} The map
-   * @static
-   * @example
-   * StringUtil.parseQuery('foo=bar&baz=qux') // {foo: 'bar', baz: 'qux'}
-   */
-  parseQuery: function parseQuery(query) {
-    var params = {};
-    var pairs = decodeURIComponent(query.replace(/\+/g, ' ')).split('&');
-
-    for (var i = 0; i < pairs.length; i++) {
-      var pair = pairs[i];
-      var data = pair.split('=');
-      params[data.shift()] = data.join('=');
-    }
-
-    return params;
-  },
-
-  /** @static */
-  encodeJSObject: function encodeJSObject(jsObj) {
-    return encodeURIComponent(JSON.stringify(jsObj));
-  },
-
-  /** @static */
-  decodeJSObject: function decodeJSObject(jsObj) {
-    try {
-      return JSON.parse(decodeURIComponent(jsObj));
-    } catch (e) {
-      return null;
-    }
-  },
-
-  /** @static */
-  unescapeHtml: function unescapeHtml(string) {
-    return String(string).replace(/&[\w#\d]{2,};/g, function (s) {
-      return entityMap[s] || s;
-    });
-  },
-
-  /**
-   * Get the original i18n template directly without string format with parameters
-   * @param {String} key The key
-   * @param {String} bundle="messages"] The name of the i18n bundle. Defaults to the first bundle in the list.
-   */
-  getTemplate: function getTemplate(key, bundleName) {
-    var bundle = getBundle(bundleName);
-
-    if (!bundle) {
-      emitL10nError(key, bundleName, 'bundle');
-      return 'L10N_ERROR[' + bundleName + ']';
-    }
-
-    if (bundle[key]) {
-      return bundle[key];
-    } else {
-      emitL10nError(key, bundleName, 'key');
-      return 'L10N_ERROR[' + key + ']';
-    }
-  },
-
-  /**
-   * Translate a key to the localized value
-   * @static
-   * @param  {String} key The key
-   * @param  {String} [bundle="messages"] The name of the i18n bundle. Defaults to the first bundle in the list.
-   * @param  {Array} [params] A list of parameters to apply as tokens to the i18n value
-   * @return {String} The localized value
-   */
-  localize: function localize(key, bundleName, params) {
-    var bundle = getBundle(bundleName);
-    /* eslint complexity: [2, 6] */
-
-    if (!bundle) {
-      emitL10nError(key, bundleName, 'bundle');
-      return 'L10N_ERROR[' + bundleName + ']';
-    }
-
-    var value = bundle[key];
-
-    try {
-      params = params && params.slice ? params.slice(0) : [];
-      params.unshift(value);
-      value = StringUtil.sprintf.apply(null, params);
-
-      if (value) {
-        return value;
-      } else {
-        emitL10nError(key, bundleName, 'key');
-        return 'L10N_ERROR[' + key + ']';
-      }
-    } catch (e) {
-      emitL10nError(key, bundleName, 'parameters');
-      return 'L10N_ERROR[' + key + ']';
-    }
-  },
-
-  /**
-   * Convert a string to a float if valid, otherwise return the string.
-   * Valid numbers may contain a negative sign and a decimal point.
-   * @static
-   * @param {String} string The string to convert to a number
-   * @return {String|Number} Returns a number if the string can be casted, otherwise returns the original string
-   */
-  parseFloat: function (_parseFloat) {
-    function parseFloat(_x) {
-      return _parseFloat.apply(this, arguments);
-    }
-
-    parseFloat.toString = function () {
-      return _parseFloat.toString();
-    };
-
-    return parseFloat;
-  }(function (string) {
-    var number = +string;
-    return typeof string === 'string' && number === parseFloat(string) ? number : string;
-  }),
-
-  /**
-   * Convert a string to an integer if valid, otherwise return the string
-   * @static
-   * @param {String} string The string to convert to an integer
-   * @return {String|integer} Returns an integer if the string can be casted, otherwise, returns the original string
-   */
-  parseInt: function (_parseInt) {
-    function parseInt(_x2) {
-      return _parseInt.apply(this, arguments);
-    }
-
-    parseInt.toString = function () {
-      return _parseInt.toString();
-    };
-
-    return parseInt;
-  }(function (string) {
-    var int = +string;
-    return _underscoreWrapper.default.isString(string) && int === parseInt(string, 10) ? int : string;
-  }),
-
-  /**
-   * Convert a string to an object if valid, otherwise return the string
-   * @static
-   * @param {String} string The string to convert to an object
-   * @return {String|object} Returns an object if the string can be casted, otherwise, returns the original string
-   */
-  parseObject: function parseObject(string) {
-    if (!_underscoreWrapper.default.isString(string)) {
-      return string;
-    }
-
-    try {
-      var object = JSON.parse(string);
-      return _jqueryWrapper.default.isPlainObject(object) ? object : string;
-    } catch (e) {
-      return string;
-    }
-  },
-
-  /**
-   * Returns a random string from [a-z][A-Z][0-9] of a given length
-   * @static
-   * @param {Number} length The length of the random string.
-   * @return {String} Returns a random string from [a-z][A-Z][0-9] of a given length
-   */
-  randomString: function randomString(length) {
-    var characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz';
-
-    if (length === undefined) {
-      length = _underscoreWrapper.default.random(characters.length);
-    } else if (length === 0) {
-      return '';
-    }
-
-    var stringArray = [];
-
-    while (length--) {
-      stringArray.push(characters[_underscoreWrapper.default.random(characters.length - 1)]);
-    }
-
-    return stringArray.join('');
-  },
-
-  /**
-   * Returns if a str ends with another string
-   * @static
-   * @param {String} str The string to search
-   * @param {String} ends The string it should end with
-   *
-   * @return {Boolean} Returns if the str ends with ends
-   */
-  endsWith: function endsWith(str, ends) {
-    str += '';
-    ends += '';
-    return str.length >= ends.length && str.substring(str.length - ends.length) === ends;
-  },
-
-  /** @static */
-  isEmail: function isEmail(str) {
-    var target = _jqueryWrapper.default.trim(str);
-
-    return !_underscoreWrapper.default.isEmpty(target) && emailValidator.test(target);
-  }
-};
-/**
- * Handy utility functions to handle strings.
- *
- * @class module:Okta.internal.util.StringUtil
- * @hideconstructor
- */
-
-var _default = StringUtil;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/TemplateUtil.js":
-/*!*************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/TemplateUtil.js ***!
-  \*************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-methods: 0 */
-
-/**
- * @class module:Okta.internal.util.TemplateUtil
- * @hideconstructor
- */
-var _default =
-/** @lends module:Okta.internal.util.TemplateUtil */
-{
-  /**
-   * Compiles a Handlebars template
-   * @static
-   * @method
-   */
-  // TODO: This will be deprecated at some point. Views should use pre-compiled templates
-  tpl: _underscoreWrapper.default.memoize(function (tpl) {
-    /* eslint @okta/okta-ui/no-specific-methods: 0 */
-    return function (context) {
-      return _handlebars.default.compile(tpl)(context);
-    };
-  })
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Time.js":
-/*!*****************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Time.js ***!
-  \*****************************************************/
-/***/ (function(module, exports) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-var _default = {
-  DEBOUNCE_DELAY: 200,
-  LOADING_FADE: 400,
-  UNLOADING_FADE: 400,
-  ROW_EXPANDER_TRANSITION: 150,
-  HIDE_ADD_MAPPING_FORM: 300
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/Util.js":
-/*!*****************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/Util.js ***!
-  \*****************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../views/BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var _default = {
-  redirect: function redirect(url) {
-    window.location = url;
-  },
-  reloadPage: function reloadPage() {
-    window.location.reload();
-  },
-  constantError: function constantError(errorMessage) {
-    return function () {
-      throw new Error(errorMessage);
-    };
-  },
-
-  /**
-   * Simply convert an URL query key value pair object into an URL query string.
-   * Remember NOT to escape the query string when using this util.
-   * example:
-   * input: {userId: 123, instanceId: undefined, expand: 'schema,app'}
-   * output: '?userId=123&expand=schema,app'
-   */
-  getUrlQueryString: function getUrlQueryString(queries) {
-    _underscoreWrapper.default.isObject(queries) || (queries = {});
-
-    var queriesString = _underscoreWrapper.default.without(_underscoreWrapper.default.map(queries, function (value, key) {
-      if (value !== undefined && value !== null) {
-        return key + '=' + encodeURIComponent(value);
-      }
-    }), undefined).join('&');
-
-    return _underscoreWrapper.default.isEmpty(queriesString) ? '' : '?' + queriesString;
-  },
-  isABaseView: function isABaseView(obj) {
-    return obj instanceof _BaseView.default || obj.prototype instanceof _BaseView.default || obj === _BaseView.default;
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/ViewUtil.js":
-/*!*********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/ViewUtil.js ***!
-  \*********************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function changeEventString(doWhen) {
-  return 'change:' + _underscoreWrapper.default.keys(doWhen).join(' change:');
-}
-
-function calcDoWhen(value, key) {
-  var modelValue = this.model.get(key);
-
-  if (_underscoreWrapper.default.isFunction(value)) {
-    return value.call(this, modelValue);
-  } else {
-    return value === modelValue;
-  }
-}
-
-function _doWhen(view, doWhen, fn) {
-  var toggle = _underscoreWrapper.default.bind(fn, view, view, doWhen);
-
-  view.render = _underscoreWrapper.default.wrap(view.render, function (render) {
-    var val = render.call(view);
-    toggle({
-      animate: false
-    });
-    return val;
-  });
-  view.listenTo(view.model, changeEventString(doWhen), function () {
-    toggle({
-      animate: true
-    });
-  });
-}
-
-var _default = {
-  applyDoWhen: function applyDoWhen(view, doWhen, fn) {
-    if (!(view.model && _underscoreWrapper.default.isObject(doWhen) && _underscoreWrapper.default.size(doWhen) && _underscoreWrapper.default.isFunction(fn))) {
-      return;
-    }
-
-    _doWhen(view, doWhen, function (view, doWhen, options) {
-      var result = _underscoreWrapper.default.every(_underscoreWrapper.default.map(doWhen, calcDoWhen, view));
-
-      fn.call(view, result, options);
-    });
-  }
-};
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars-wrapper.js":
-/*!*******************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars-wrapper.js ***!
-  \*******************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-__webpack_require__(/*! ./handlebars/handle-url */ "./node_modules/@okta/courage/src/util/handlebars/handle-url.js");
-
-__webpack_require__(/*! ./handlebars/helper-base64 */ "./node_modules/@okta/courage/src/util/handlebars/helper-base64.js");
-
-__webpack_require__(/*! ./handlebars/helper-date */ "./node_modules/@okta/courage/src/util/handlebars/helper-date.js");
-
-__webpack_require__(/*! ./handlebars/helper-i18n */ "./node_modules/@okta/courage/src/util/handlebars/helper-i18n.js");
-
-__webpack_require__(/*! ./handlebars/helper-img */ "./node_modules/@okta/courage/src/util/handlebars/helper-img.js");
-
-__webpack_require__(/*! ./handlebars/helper-markdown */ "./node_modules/@okta/courage/src/util/handlebars/helper-markdown.js");
-
-__webpack_require__(/*! ./handlebars/helper-xsrfTokenInput */ "./node_modules/@okta/courage/src/util/handlebars/helper-xsrfTokenInput.js");
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-// Handlebars "wrapper" is used by frontend code. It contains all helpers.
-// This runs in a browser / webpacked environment
-// TODO: Once all templates are precompiled, this file should use handlebars/runtime
-
-/* eslint @okta/okta-ui/no-specific-modules: 0 */
-// from vendor/lib
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/handle-url.js":
-/*!**********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/handle-url.js ***!
-  \**********************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-var clonedEscapeExpression = _handlebars.default.Utils.escapeExpression;
-
-_handlebars.default.Utils.escapeExpression = function (string) {
-  return clonedEscapeExpression(string).replace(/&#x3D;/g, '=');
-};
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-base64.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-base64.js ***!
-  \*************************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-/* eslint @okta/okta-ui/no-specific-modules: 0 */
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-// Display a base 64 encoded data (e.g. certificate signature) in a nicely formatted hex format.
-_handlebars.default.registerHelper('base64ToHex', function (base64String) {
-  var raw = atob(base64String);
-  var result = '';
-
-  if (raw.length > 0) {
-    var firstHex = raw.charCodeAt(0).toString(16);
-    result += firstHex.length === 2 ? firstHex : '0' + firstHex;
-
-    for (var i = 1; i < raw.length; i++) {
-      var hex = raw.charCodeAt(i).toString(16);
-      result += ' ' + (hex.length === 2 ? hex : '0' + hex);
-    }
-  }
-
-  return result.toUpperCase();
-});
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-date.js":
-/*!***********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-date.js ***!
-  \***********************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _moment = _interopRequireDefault(__webpack_require__(/*! moment */ "./src/empty.js"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-modules: 0, max-params: 0, max-statements: 0 */
-function formatDate(format, dateInISOString) {
-  return _moment.default.utc(dateInISOString).utcOffset('-07:00').format(format);
-}
-
-_handlebars.default.registerHelper('shortDate', _underscoreWrapper.default.partial(formatDate, 'MMM Do'));
-
-_handlebars.default.registerHelper('mediumDate', _underscoreWrapper.default.partial(formatDate, 'MMMM DD, YYYY'));
-
-_handlebars.default.registerHelper('longDate', _underscoreWrapper.default.partial(formatDate, 'MMMM DD, YYYY, h:mma'));
-
-_handlebars.default.registerHelper('formatDate', formatDate);
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-i18n.js":
-/*!***********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-i18n.js ***!
-  \***********************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ../Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
-
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-function _slicedToArray(arr, i) { return _arrayWithHoles(arr) || _iterableToArrayLimit(arr, i) || _unsupportedIterableToArray(arr, i) || _nonIterableRest(); }
-
-function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
-
-function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
-
-function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) { arr2[i] = arr[i]; } return arr2; }
-
-function _iterableToArrayLimit(arr, i) { var _i = arr == null ? null : typeof Symbol !== "undefined" && arr[Symbol.iterator] || arr["@@iterator"]; if (_i == null) return; var _arr = []; var _n = true; var _d = false; var _s, _e; try { for (_i = _i.call(arr); !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"] != null) _i["return"](); } finally { if (_d) throw _e; } } return _arr; }
-
-function _arrayWithHoles(arr) { if (Array.isArray(arr)) return arr; }
-
-var hbsEscape = _handlebars.default.Utils.escapeExpression;
-
-function trim(str) {
-  return str && str.replace(/^\s+|\s+$/g, '');
-}
-
-function replaceTagsWithPlaceholders(source, tag, tagValue) {
-  var escapedBeginningTag = hbsEscape("<".concat(tag, ">"));
-  var escapedEndTag = hbsEscape("</".concat(tag, ">"));
-
-  var _tagValue$split = tagValue.split(tag),
-      _tagValue$split2 = _slicedToArray(_tagValue$split, 2),
-      beginningTag = _tagValue$split2[0],
-      endTag = _tagValue$split2[1];
-
-  if (!source.includes(escapedBeginningTag) && !source.includes(escapedEndTag)) {
-    throw Error("Parsed tag \"".concat(tag, "\" is not present in \"").concat(source, "\""));
-  } else if (!tagValue.includes(tag)) {
-    throw Error("Parsed tag \"".concat(tag, "\" is not present in \"").concat(tagValue, "\""));
-  } else if (!beginningTag || !endTag) {
-    throw Error("Template value \"".concat(tagValue, "\" must contain beginning and closing tags"));
-  }
-
-  return source.replace(escapedBeginningTag, beginningTag).replace(escapedEndTag, endTag);
-}
-/* eslint max-statements: [2, 18] */
-
-
-_handlebars.default.registerHelper('i18n', function (options) {
-  var params;
-  var key = trim(options.hash.code);
-  var bundle = trim(options.hash.bundle);
-  var args = trim(options.hash['arguments']);
-  var tags = Object.keys(options.hash).filter(function (prop) {
-    return prop.match(/^\$\d+/);
-  }).map(function (prop) {
-    return {
-      tag: prop,
-      value: options.hash[prop]
-    };
-  });
-
-  if (args) {
-    params = _underscoreWrapper.default.map(trim(args).split(';'), function (param) {
-      param = trim(param);
-      var val;
-      var data = this;
-      /*
-       * the context(data) may be a deep object, ex {user: {name: 'John', gender: 'M'}}
-       * arguments may be 'user.name'
-       * return data['user']['name']
-       */
-
-      _underscoreWrapper.default.each(param.split('.'), function (p) {
-        val = val ? val[p] : data[p];
-      });
-
-      return val;
-    }, this);
-  }
-
-  var localizedValue = _StringUtil.default.localize(key, bundle, params);
-
-  if (tags.length < 1) {
-    // No HTML tags provided - return the localized and escaped string
-    return localizedValue;
-  }
-
-  var escapedString = hbsEscape(localizedValue);
-
-  try {
-    tags.forEach(function (tag) {
-      escapedString = replaceTagsWithPlaceholders(escapedString, tag.tag, tag.value);
-    });
-    return new _handlebars.default.SafeString(escapedString);
-  } catch (err) {
-    _Logger.default.error(err.toString());
-
-    return localizedValue;
-  }
-});
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-img.js":
-/*!**********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-img.js ***!
-  \**********************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-modules: 0 */
-var CACHE_BUST_URL_PREFIX = '/assets';
-
-function prependCachebustPrefix(path) {
-  if (path.indexOf(CACHE_BUST_URL_PREFIX) === 0) {
-    return path;
-  }
-
-  return CACHE_BUST_URL_PREFIX + path;
-}
-
-_handlebars.default.registerHelper('img', function (options) {
-  var cdn = typeof okta !== 'undefined' && okta.cdnUrlHostname || '';
-  /*global okta */
-
-  var hash = _underscoreWrapper.default.pick(options.hash, ['src', 'alt', 'width', 'height', 'class', 'title']);
-
-  hash.src = '' + cdn + prependCachebustPrefix(hash.src);
-
-  var attrs = _underscoreWrapper.default.map(hash, function (value, attr) {
-    return attr + '="' + (attr === 'src' ? encodeURI(value) : _handlebars.default.Utils.escapeExpression(value)) + '"';
-  });
-
-  return new _handlebars.default.SafeString('<img ' + attrs.join(' ') + '/>');
-});
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-markdown.js":
-/*!***************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-markdown.js ***!
-  \***************************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _markdownToHtml = _interopRequireDefault(__webpack_require__(/*! ../markdownToHtml */ "./node_modules/@okta/courage/src/util/markdownToHtml.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-modules: 0 */
-_handlebars.default.registerHelper('markdown', function (mdText) {
-  return (0, _markdownToHtml.default)(_handlebars.default, mdText);
-});
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/handlebars/helper-xsrfTokenInput.js":
-/*!*********************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/handlebars/helper-xsrfTokenInput.js ***!
-  \*********************************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-modules: 0 */
-_handlebars.default.registerHelper('xsrfTokenInput', function () {
-  return new _handlebars.default.SafeString('<input type="hidden" class="hide" name="_xsrfToken" ' + 'value="' + (0, _jqueryWrapper.default)('#_xsrfToken').text() + '">');
-});
-
-var _default = _handlebars.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/jquery-wrapper.js":
-/*!***************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/jquery-wrapper.js ***!
-  \***************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _jquery = _interopRequireDefault(__webpack_require__(/*! jquery */ "jquery"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint-disable @okta/okta-ui/enforce-requirejs-names, @okta/okta-ui/no-specific-modules */
-_jquery.default.ajaxSetup({
-  beforeSend: function beforeSend(xhr) {
-    xhr.setRequestHeader('X-Okta-XsrfToken', (0, _jquery.default)('#_xsrfToken').text());
-  },
-  converters: {
-    'text secureJSON': function textSecureJSON(str) {
-      if (str.substring(0, 11) === 'while(1){};') {
-        str = str.substring(11);
-      }
-
-      return JSON.parse(str);
-    }
-  }
-}); // Selenium Hook
-// Widget such as autocomplete and autosuggest needs to be triggered from the running version of jQuery.
-// We have 2 versions of jQuery running in parallel and they don't share the same events bus
-
-
-window.jQueryCourage = _jquery.default;
-var _default = _jquery.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/markdownToHtml.js":
-/*!***************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/markdownToHtml.js ***!
-  \***************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = mdToHtml;
-
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ./underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-// Simple "markdown parser" - just handles markdown formatted links. If we
-// find that we need more extensive markdown support, we should include
-// a fully formulated markdown library like:
-// https://github.com/evilstreak/markdown-js
-var RE_LINK = /\[[^\]]*\]\([^)]*\)/gi;
-var RE_LINK_HREF = /\]\(([^)]*)\)/i;
-var RE_LINK_TEXT = /\[([^\]]*)\]/i;
-var RE_LINK_JS = /javascript:/gi; // Converts links
-// FROM:
-// [some link text](http://the/link/url)
-// TO:
-// <a href="http://the/link/url">some link text</a>
-
-function mdToHtml(Handlebars, markdownText) {
-  // TODO: use precompiled templates OKTA-309852
-  // eslint-disable-next-line @okta/okta-ui/no-bare-templates
-  var linkTemplate = Handlebars.compile('<a href="{{href}}">{{text}}</a>');
-  /* eslint  @okta/okta-ui/no-specific-methods: 0*/
-
-  var res;
-
-  if (!_underscoreWrapper.default.isString(markdownText)) {
-    res = '';
-  } else {
-    res = Handlebars.Utils.escapeExpression(markdownText).replace(RE_LINK_JS, '').replace(RE_LINK, function (mdLink) {
-      return linkTemplate({
-        href: mdLink.match(RE_LINK_HREF)[1],
-        text: mdLink.match(RE_LINK_TEXT)[1]
-      });
-    });
-  }
-
-  return new Handlebars.SafeString(res);
-}
-
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/util/underscore-wrapper.js":
-/*!*******************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/util/underscore-wrapper.js ***!
-  \*******************************************************************/
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
-
-var _handlebars = _interopRequireDefault(__webpack_require__(/*! handlebars */ "handlebars"));
-
-var _underscore = _interopRequireDefault(__webpack_require__(/*! underscore */ "underscore"));
-
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-/* eslint @okta/okta-ui/no-specific-methods: 0, @okta/okta-ui/no-specific-modules: 0 */
-_underscore.default.mixin({
-  resultCtx: function resultCtx(object, property, context, defaultValue) {
-    var value = _underscore.default.isObject(object) ? object[property] : void 0;
-
-    if (_underscore.default.isFunction(value)) {
-      value = value.call(context || object);
-    }
-
-    if (value) {
-      return value;
-    } else {
-      return !_underscore.default.isUndefined(defaultValue) ? defaultValue : value;
-    }
-  },
-  isInteger: function isInteger(x) {
-    return _underscore.default.isNumber(x) && x % 1 === 0;
-  },
-  // TODO: This will be deprecated at some point. Views should use precompiled templates
-  // eslint-disable-next-line @okta/okta-ui/no-bare-templates
-  template: function template(source, data) {
-    var template = _handlebars.default.compile(source);
-
-    return data ? template(data) : function (data) {
-      return template(data);
-    };
-  }
-});
-
-var _default = _underscore.default;
-exports.default = _default;
-module.exports = exports.default;
-
-/***/ }),
-
-/***/ "./node_modules/@okta/courage/src/vendor/lib/js.cookie.js":
-/*!****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/vendor/lib/js.cookie.js ***!
-  \****************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/vendor/lib/js.cookie.js":
+/*!***********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/vendor/lib/js.cookie.js ***!
+  \***********************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -5840,10 +148,10 @@ function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "functi
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/vendor/plugins/chosen.jquery.js":
-/*!************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/vendor/plugins/chosen.jquery.js ***!
-  \************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/chosen.jquery.js":
+/*!*******************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/chosen.jquery.js ***!
+  \*******************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7099,10 +1407,10 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/vendor/plugins/jquery.custominput.js":
-/*!*****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/vendor/plugins/jquery.custominput.js ***!
-  \*****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.custominput.js":
+/*!************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.custominput.js ***!
+  \************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7166,10 +1474,10 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/vendor/plugins/jquery.placeholder.js":
-/*!*****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/vendor/plugins/jquery.placeholder.js ***!
-  \*****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.placeholder.js":
+/*!************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.placeholder.js ***!
+  \************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7328,10 +1636,10 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/Backbone.ListView.js":
-/*!*******************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/Backbone.ListView.js ***!
-  \*******************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/Backbone.ListView.js":
+/*!**************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/Backbone.ListView.js ***!
+  \**************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7342,9 +1650,9 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _ListView = _interopRequireDefault(__webpack_require__(/*! ../framework/ListView */ "./node_modules/@okta/courage/src/framework/ListView.js"));
+var _ListView = _interopRequireDefault(__webpack_require__(/*! ../framework/ListView */ "../../../../../../okta/okta-ui/packages/courage/src/framework/ListView.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ./BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ./BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -7361,10 +1669,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/BaseView.js":
-/*!**********************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/BaseView.js ***!
-  \**********************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js":
+/*!*****************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js ***!
+  \*****************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7375,13 +1683,13 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
+var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _View = _interopRequireDefault(__webpack_require__(/*! ../framework/View */ "./node_modules/@okta/courage/src/framework/View.js"));
+var _View = _interopRequireDefault(__webpack_require__(/*! ../framework/View */ "../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts"));
 
-var _TemplateUtil = _interopRequireDefault(__webpack_require__(/*! ../util/TemplateUtil */ "./node_modules/@okta/courage/src/util/TemplateUtil.js"));
+var _TemplateUtil = _interopRequireDefault(__webpack_require__(/*! ../util/TemplateUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/TemplateUtil.ts"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -7578,10 +1886,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/components/BaseButtonLink.js":
-/*!***************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/components/BaseButtonLink.js ***!
-  \***************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseButtonLink.js":
+/*!**********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseButtonLink.js ***!
+  \**********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7594,11 +1902,11 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _ViewUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/ViewUtil */ "./node_modules/@okta/courage/src/util/ViewUtil.js"));
+var _ViewUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/ViewUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/ViewUtil.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -7879,10 +2187,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/components/BaseDropDown.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/components/BaseDropDown.js ***!
-  \*************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseDropDown.js":
+/*!********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseDropDown.js ***!
+  \********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -7895,11 +2203,11 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -8300,10 +2608,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/components/Callout.js":
-/*!********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/components/Callout.js ***!
-  \********************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Callout.js":
+/*!***************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/components/Callout.js ***!
+  \***************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8316,11 +2624,11 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Time = _interopRequireDefault(__webpack_require__(/*! ../../util/Time */ "./node_modules/@okta/courage/src/util/Time.js"));
+var _Time = _interopRequireDefault(__webpack_require__(/*! ../../util/Time */ "../../../../../../okta/okta-ui/packages/courage/src/util/Time.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -8711,10 +3019,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/components/Notification.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/components/Notification.js ***!
-  \*************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Notification.js":
+/*!********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/components/Notification.js ***!
+  \********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8727,9 +3035,9 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -8916,10 +3224,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/BaseForm.js":
-/*!****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/BaseForm.js ***!
-  \****************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseForm.js":
+/*!***********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseForm.js ***!
+  \***********************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -8932,33 +3240,33 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _ReadModeBar = _interopRequireDefault(__webpack_require__(/*! ./components/ReadModeBar */ "./node_modules/@okta/courage/src/views/forms/components/ReadModeBar.js"));
+var _ReadModeBar = _interopRequireDefault(__webpack_require__(/*! ./components/ReadModeBar */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/ReadModeBar.js"));
 
-var _Toolbar = _interopRequireDefault(__webpack_require__(/*! ./components/Toolbar */ "./node_modules/@okta/courage/src/views/forms/components/Toolbar.js"));
+var _Toolbar = _interopRequireDefault(__webpack_require__(/*! ./components/Toolbar */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/Toolbar.js"));
 
-var _ErrorBanner = _interopRequireDefault(__webpack_require__(/*! ./helpers/ErrorBanner */ "./node_modules/@okta/courage/src/views/forms/helpers/ErrorBanner.js"));
+var _ErrorBanner = _interopRequireDefault(__webpack_require__(/*! ./helpers/ErrorBanner */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorBanner.js"));
 
-var _ErrorParser = _interopRequireDefault(__webpack_require__(/*! ./helpers/ErrorParser */ "./node_modules/@okta/courage/src/views/forms/helpers/ErrorParser.js"));
+var _ErrorParser = _interopRequireDefault(__webpack_require__(/*! ./helpers/ErrorParser */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorParser.js"));
 
-var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ./helpers/FormUtil */ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js"));
+var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ./helpers/FormUtil */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js"));
 
-var _InputContainer = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputContainer */ "./node_modules/@okta/courage/src/views/forms/helpers/InputContainer.js"));
+var _InputContainer = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputContainer */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputContainer.js"));
 
-var _InputFactory = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputFactory */ "./node_modules/@okta/courage/src/views/forms/helpers/InputFactory.js"));
+var _InputFactory = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputFactory */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputFactory.js"));
 
-var _InputLabel = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputLabel */ "./node_modules/@okta/courage/src/views/forms/helpers/InputLabel.js"));
+var _InputLabel = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputLabel */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputLabel.js"));
 
-var _InputWrapper = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputWrapper */ "./node_modules/@okta/courage/src/views/forms/helpers/InputWrapper.js"));
+var _InputWrapper = _interopRequireDefault(__webpack_require__(/*! ./helpers/InputWrapper */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputWrapper.js"));
 
-var _SettingsModel = _interopRequireDefault(__webpack_require__(/*! ../../util/SettingsModel */ "./node_modules/@okta/courage/src/util/SettingsModel.js"));
+var _SettingsModel = _interopRequireDefault(__webpack_require__(/*! ../../util/SettingsModel */ "../../../../../../okta/okta-ui/packages/courage/src/util/SettingsModel.ts"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -10246,10 +4554,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/BaseInput.js":
-/*!*****************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/BaseInput.js ***!
-  \*****************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js":
+/*!************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js ***!
+  \************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10262,17 +4570,17 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _ButtonFactory = _interopRequireDefault(__webpack_require__(/*! ../../util/ButtonFactory */ "./node_modules/@okta/courage/src/util/ButtonFactory.js"));
+var _ButtonFactory = _interopRequireDefault(__webpack_require__(/*! ../../util/ButtonFactory */ "../../../../../../okta/okta-ui/packages/courage/src/util/ButtonFactory.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _Callout = _interopRequireDefault(__webpack_require__(/*! ../components/Callout */ "./node_modules/@okta/courage/src/views/components/Callout.js"));
+var _Callout = _interopRequireDefault(__webpack_require__(/*! ../components/Callout */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Callout.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -10759,10 +5067,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/components/ReadModeBar.js":
-/*!******************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/components/ReadModeBar.js ***!
-  \******************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/ReadModeBar.js":
+/*!*************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/ReadModeBar.js ***!
+  \*************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10773,9 +5081,9 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ../helpers/FormUtil */ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js"));
+var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ../helpers/FormUtil */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -10812,10 +5120,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/components/Toolbar.js":
-/*!**************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/components/Toolbar.js ***!
-  \**************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/Toolbar.js":
+/*!*********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/Toolbar.js ***!
+  \*********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10826,11 +5134,11 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ../helpers/FormUtil */ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js"));
+var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ../helpers/FormUtil */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -10895,10 +5203,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/EnumTypeHelper.js":
-/*!******************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/EnumTypeHelper.js ***!
-  \******************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/EnumTypeHelper.js":
+/*!*************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/EnumTypeHelper.js ***!
+  \*************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -10909,13 +5217,13 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "./node_modules/@okta/courage/src/util/SchemaUtil.js"));
+var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -11117,10 +5425,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/ErrorBanner.js":
-/*!***************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/ErrorBanner.js ***!
-  \***************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorBanner.js":
+/*!**********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorBanner.js ***!
+  \**********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11133,7 +5441,7 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -11234,10 +5542,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/ErrorParser.js":
-/*!***************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/ErrorParser.js ***!
-  \***************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorParser.js":
+/*!**********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/ErrorParser.js ***!
+  \**********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11248,9 +5556,9 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -11360,10 +5668,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js":
-/*!************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js ***!
-  \************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js":
+/*!*******************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js ***!
+  \*******************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11374,17 +5682,17 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ../../../util/Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
+var _Logger = _interopRequireDefault(__webpack_require__(/*! ../../../util/Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _ViewUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/ViewUtil */ "./node_modules/@okta/courage/src/util/ViewUtil.js"));
+var _ViewUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/ViewUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/ViewUtil.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -11727,10 +6035,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/InputContainer.js":
-/*!******************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/InputContainer.js ***!
-  \******************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputContainer.js":
+/*!*************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputContainer.js ***!
+  \*************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -11743,15 +6051,15 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Logger = _interopRequireDefault(__webpack_require__(/*! ../../../util/Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
+var _Logger = _interopRequireDefault(__webpack_require__(/*! ../../../util/Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
 
-var _Util = _interopRequireDefault(__webpack_require__(/*! ../../../util/Util */ "./node_modules/@okta/courage/src/util/Util.js"));
+var _Util = _interopRequireDefault(__webpack_require__(/*! ../../../util/Util */ "../../../../../../okta/okta-ui/packages/courage/src/util/Util.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12085,10 +6393,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/InputFactory.js":
-/*!****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/InputFactory.js ***!
-  \****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputFactory.js":
+/*!***********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputFactory.js ***!
+  \***********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12099,9 +6407,9 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _InputRegistry = _interopRequireDefault(__webpack_require__(/*! ./InputRegistry */ "./node_modules/@okta/courage/src/views/forms/helpers/InputRegistry.js"));
+var _InputRegistry = _interopRequireDefault(__webpack_require__(/*! ./InputRegistry */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputRegistry.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12143,10 +6451,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/InputLabel.js":
-/*!**************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/InputLabel.js ***!
-  \**************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputLabel.js":
+/*!*********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputLabel.js ***!
+  \*********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12159,11 +6467,11 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
 __webpack_require__(/*! qtip */ "qtip");
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12534,10 +6842,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/InputRegistry.js":
-/*!*****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/InputRegistry.js ***!
-  \*****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputRegistry.js":
+/*!************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputRegistry.js ***!
+  \************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12548,7 +6856,7 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12604,10 +6912,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/InputWrapper.js":
-/*!****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/InputWrapper.js ***!
-  \****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputWrapper.js":
+/*!***********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputWrapper.js ***!
+  \***********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12618,11 +6926,11 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ./FormUtil */ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js"));
+var _FormUtil = _interopRequireDefault(__webpack_require__(/*! ./FormUtil */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -12750,10 +7058,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/helpers/SchemaFormFactory.js":
-/*!*********************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/helpers/SchemaFormFactory.js ***!
-  \*********************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/SchemaFormFactory.js":
+/*!****************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/SchemaFormFactory.js ***!
+  \****************************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12764,15 +7072,15 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _BooleanSelect = _interopRequireDefault(__webpack_require__(/*! ../inputs/BooleanSelect */ "./node_modules/@okta/courage/src/views/forms/inputs/BooleanSelect.js"));
+var _BooleanSelect = _interopRequireDefault(__webpack_require__(/*! ../inputs/BooleanSelect */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/BooleanSelect.js"));
 
-var _TextBoxSet = _interopRequireDefault(__webpack_require__(/*! ../inputs/TextBoxSet */ "./node_modules/@okta/courage/src/views/forms/inputs/TextBoxSet.js"));
+var _TextBoxSet = _interopRequireDefault(__webpack_require__(/*! ../inputs/TextBoxSet */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBoxSet.js"));
 
-var _EnumTypeHelper = _interopRequireDefault(__webpack_require__(/*! ./EnumTypeHelper */ "./node_modules/@okta/courage/src/views/forms/helpers/EnumTypeHelper.js"));
+var _EnumTypeHelper = _interopRequireDefault(__webpack_require__(/*! ./EnumTypeHelper */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/EnumTypeHelper.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13081,10 +7389,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/BooleanSelect.js":
-/*!****************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/BooleanSelect.js ***!
-  \****************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/BooleanSelect.js":
+/*!***********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/BooleanSelect.js ***!
+  \***********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13095,7 +7403,7 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _Select = _interopRequireDefault(__webpack_require__(/*! ./Select */ "./node_modules/@okta/courage/src/views/forms/inputs/Select.js"));
+var _Select = _interopRequireDefault(__webpack_require__(/*! ./Select */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Select.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13146,10 +7454,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/CheckBox.js":
-/*!***********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/CheckBox.js ***!
-  \***********************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/CheckBox.js":
+/*!******************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/CheckBox.js ***!
+  \******************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13162,13 +7470,13 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-__webpack_require__(/*! vendor/plugins/jquery.custominput */ "./node_modules/@okta/courage/src/vendor/plugins/jquery.custominput.js");
+__webpack_require__(/*! vendor/plugins/jquery.custominput */ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.custominput.js");
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13333,10 +7641,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/DeletableBox.js":
-/*!***************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/DeletableBox.js ***!
-  \***************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/DeletableBox.js":
+/*!**********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/DeletableBox.js ***!
+  \**********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13349,15 +7657,15 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "./node_modules/@okta/courage/src/util/SchemaUtil.js"));
+var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var _StringUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _Time = _interopRequireDefault(__webpack_require__(/*! ../../../util/Time */ "./node_modules/@okta/courage/src/util/Time.js"));
+var _Time = _interopRequireDefault(__webpack_require__(/*! ../../../util/Time */ "../../../../../../okta/okta-ui/packages/courage/src/util/Time.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13565,10 +7873,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/InputGroup.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/InputGroup.js ***!
-  \*************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/InputGroup.js":
+/*!********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/InputGroup.js ***!
+  \********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13579,13 +7887,13 @@ Object.defineProperty(exports, "__esModule", ({
 }));
 exports.default = void 0;
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _ButtonFactory = _interopRequireDefault(__webpack_require__(/*! ../../../util/ButtonFactory */ "./node_modules/@okta/courage/src/util/ButtonFactory.js"));
+var _ButtonFactory = _interopRequireDefault(__webpack_require__(/*! ../../../util/ButtonFactory */ "../../../../../../okta/okta-ui/packages/courage/src/util/ButtonFactory.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13715,10 +8023,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/PasswordBox.js":
-/*!**************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/PasswordBox.js ***!
-  \**************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/PasswordBox.js":
+/*!*********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/PasswordBox.js ***!
+  \*********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13731,9 +8039,9 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _TextBox = _interopRequireDefault(__webpack_require__(/*! ./TextBox */ "./node_modules/@okta/courage/src/views/forms/inputs/TextBox.js"));
+var _TextBox = _interopRequireDefault(__webpack_require__(/*! ./TextBox */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBox.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -13806,10 +8114,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/Radio.js":
-/*!********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/Radio.js ***!
-  \********************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Radio.js":
+/*!***************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Radio.js ***!
+  \***************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13822,19 +8130,19 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-var _Util = _interopRequireDefault(__webpack_require__(/*! ../../../util/Util */ "./node_modules/@okta/courage/src/util/Util.js"));
+var _Util = _interopRequireDefault(__webpack_require__(/*! ../../../util/Util */ "../../../../../../okta/okta-ui/packages/courage/src/util/Util.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var _BaseView = _interopRequireDefault(__webpack_require__(/*! ../../BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-__webpack_require__(/*! vendor/plugins/jquery.custominput */ "./node_modules/@okta/courage/src/vendor/plugins/jquery.custominput.js");
+__webpack_require__(/*! vendor/plugins/jquery.custominput */ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.custominput.js");
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -14102,10 +8410,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/Select.js":
-/*!*********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/Select.js ***!
-  \*********************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Select.js":
+/*!****************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Select.js ***!
+  \****************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -14118,15 +8426,15 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-__webpack_require__(/*! vendor/plugins/chosen.jquery */ "./node_modules/@okta/courage/src/vendor/plugins/chosen.jquery.js");
+__webpack_require__(/*! vendor/plugins/chosen.jquery */ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/chosen.jquery.js");
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -14537,10 +8845,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/TextBox.js":
-/*!**********************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/TextBox.js ***!
-  \**********************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBox.js":
+/*!*****************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBox.js ***!
+  \*****************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -14553,15 +8861,15 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
 __webpack_require__(/*! qtip */ "qtip");
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var _Keys = _interopRequireDefault(__webpack_require__(/*! ../../../util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-__webpack_require__(/*! vendor/plugins/jquery.placeholder */ "./node_modules/@okta/courage/src/vendor/plugins/jquery.placeholder.js");
+__webpack_require__(/*! vendor/plugins/jquery.placeholder */ "../../../../../../okta/okta-ui/packages/courage/src/vendor/plugins/jquery.placeholder.js");
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -14913,10 +9221,10 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./node_modules/@okta/courage/src/views/forms/inputs/TextBoxSet.js":
-/*!*************************************************************************!*\
-  !*** ./node_modules/@okta/courage/src/views/forms/inputs/TextBoxSet.js ***!
-  \*************************************************************************/
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBoxSet.js":
+/*!********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBoxSet.js ***!
+  \********************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -14929,13 +9237,13 @@ exports.default = void 0;
 
 var _runtime = _interopRequireDefault(__webpack_require__(/*! handlebars/runtime */ "handlebars/runtime"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! ../../../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "./node_modules/@okta/courage/src/util/SchemaUtil.js"));
+var _SchemaUtil = _interopRequireDefault(__webpack_require__(/*! ../../../util/SchemaUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts"));
 
-var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "./node_modules/@okta/courage/src/views/forms/BaseInput.js"));
+var _BaseInput = _interopRequireDefault(__webpack_require__(/*! ../BaseInput */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseInput.js"));
 
-var _DeletableBox = _interopRequireDefault(__webpack_require__(/*! ./DeletableBox */ "./node_modules/@okta/courage/src/views/forms/inputs/DeletableBox.js"));
+var _DeletableBox = _interopRequireDefault(__webpack_require__(/*! ./DeletableBox */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/DeletableBox.js"));
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -15081,98 +9389,132 @@ module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./src/CourageForSigninWidget.js":
+/***/ "./buildtools/ConfirmationDialog.ts":
+/*!******************************************!*\
+  !*** ./buildtools/ConfirmationDialog.ts ***!
+  \******************************************/
+/***/ (function(module, exports) {
+
+"use strict";
+
+
+exports.__esModule = true;
+
+var ConfirmationDialog =
+/** @class */
+function () {
+  function ConfirmationDialog(options) {}
+
+  ConfirmationDialog.extend = function (options) {
+    return ConfirmationDialog;
+  };
+
+  ;
+
+  ConfirmationDialog.prototype.render = function () {};
+
+  ;
+  return ConfirmationDialog;
+}();
+
+exports.default = ConfirmationDialog;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "./src/CourageForSigninWidget.ts":
 /*!***************************************!*\
-  !*** ./src/CourageForSigninWidget.js ***!
+  !*** ./src/CourageForSigninWidget.ts ***!
   \***************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
-Object.defineProperty(exports, "__esModule", ({
-  value: true
-}));
-exports.default = void 0;
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
 
-var _BaseCollection = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/models/BaseCollection */ "./node_modules/@okta/courage/src/models/BaseCollection.js"));
+exports.__esModule = true;
 
-var _BaseModel = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/models/BaseModel */ "./node_modules/@okta/courage/src/models/BaseModel.js"));
+var BaseCollection_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/models/BaseCollection */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseCollection.ts"));
 
-var _BaseSchema = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/models/BaseSchema */ "./node_modules/@okta/courage/src/models/BaseSchema.js"));
+var BaseModel_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/models/BaseModel */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseModel.ts"));
 
-var _Model = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/models/Model */ "./node_modules/@okta/courage/src/models/Model.js"));
+var BaseSchema_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/models/BaseSchema */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseSchema.ts"));
 
-var _SchemaProperty = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/models/SchemaProperty */ "./node_modules/@okta/courage/src/models/SchemaProperty.js"));
+var Model_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/models/Model */ "../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts"));
 
-var _BaseController = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/BaseController */ "./node_modules/@okta/courage/src/util/BaseController.js"));
+var SchemaProperty_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/models/SchemaProperty */ "../../../../../../okta/okta-ui/packages/courage/src/models/SchemaProperty.ts"));
 
-var _BaseRouter = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/BaseRouter */ "./node_modules/@okta/courage/src/util/BaseRouter.js"));
+var BaseController_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/BaseController */ "../../../../../../okta/okta-ui/packages/courage/src/util/BaseController.ts"));
 
-var _ButtonFactory = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/ButtonFactory */ "./node_modules/@okta/courage/src/util/ButtonFactory.js"));
+var BaseRouter_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/BaseRouter */ "../../../../../../okta/okta-ui/packages/courage/src/util/BaseRouter.ts"));
 
-var _Class = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Class */ "./node_modules/@okta/courage/src/util/Class.js"));
+var ButtonFactory_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/ButtonFactory */ "../../../../../../okta/okta-ui/packages/courage/src/util/ButtonFactory.ts"));
 
-var _Cookie = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Cookie */ "./node_modules/@okta/courage/src/util/Cookie.js"));
+var Class_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Class */ "../../../../../../okta/okta-ui/packages/courage/src/util/Class.ts"));
 
-var _Clipboard = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Clipboard */ "./node_modules/@okta/courage/src/util/Clipboard.js"));
+var Cookie_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Cookie */ "../../../../../../okta/okta-ui/packages/courage/src/util/Cookie.ts"));
 
-var _Keys = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Keys */ "./node_modules/@okta/courage/src/util/Keys.js"));
+var Clipboard_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Clipboard */ "../../../../../../okta/okta-ui/packages/courage/src/util/Clipboard.ts"));
 
-var _Logger = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Logger */ "./node_modules/@okta/courage/src/util/Logger.js"));
+var Keys_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Keys */ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts"));
 
-var _StringUtil = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/StringUtil */ "./node_modules/@okta/courage/src/util/StringUtil.js"));
+var Logger_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
 
-var _Util = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/Util */ "./node_modules/@okta/courage/src/util/Util.js"));
+var StringUtil_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
 
-var _handlebarsWrapper = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/handlebars-wrapper */ "./node_modules/@okta/courage/src/util/handlebars-wrapper.js"));
+var Util_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/Util */ "../../../../../../okta/okta-ui/packages/courage/src/util/Util.ts"));
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var handlebars_wrapper_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/handlebars-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars-wrapper.ts"));
 
-var _underscoreWrapper = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/underscore-wrapper */ "./node_modules/@okta/courage/src/util/underscore-wrapper.js"));
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 
-var _Backbone = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/Backbone.ListView */ "./node_modules/@okta/courage/src/views/Backbone.ListView.js"));
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
 
-var _BaseView = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/BaseView */ "./node_modules/@okta/courage/src/views/BaseView.js"));
+var Backbone_ListView_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/Backbone.ListView */ "../../../../../../okta/okta-ui/packages/courage/src/views/Backbone.ListView.js"));
 
-var _BaseDropDown = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/components/BaseDropDown */ "./node_modules/@okta/courage/src/views/components/BaseDropDown.js"));
+var BaseView_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
 
-var _Notification = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/components/Notification */ "./node_modules/@okta/courage/src/views/components/Notification.js"));
+var BaseDropDown_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/components/BaseDropDown */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseDropDown.js"));
 
-var _BaseForm = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/BaseForm */ "./node_modules/@okta/courage/src/views/forms/BaseForm.js"));
+var Notification_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/components/Notification */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Notification.js"));
 
-var _Toolbar = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/components/Toolbar */ "./node_modules/@okta/courage/src/views/forms/components/Toolbar.js"));
+var BaseForm_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/BaseForm */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/BaseForm.js"));
 
-var _FormUtil = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/FormUtil */ "./node_modules/@okta/courage/src/views/forms/helpers/FormUtil.js"));
+var Toolbar_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/components/Toolbar */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/components/Toolbar.js"));
 
-var _InputRegistry = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/InputRegistry */ "./node_modules/@okta/courage/src/views/forms/helpers/InputRegistry.js"));
+var FormUtil_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/FormUtil */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/FormUtil.js"));
 
-var _SchemaFormFactory = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/SchemaFormFactory */ "./node_modules/@okta/courage/src/views/forms/helpers/SchemaFormFactory.js"));
+var InputRegistry_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/InputRegistry */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/InputRegistry.js"));
 
-var _CheckBox = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/CheckBox */ "./node_modules/@okta/courage/src/views/forms/inputs/CheckBox.js"));
+var SchemaFormFactory_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/helpers/SchemaFormFactory */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/SchemaFormFactory.js"));
 
-var _PasswordBox = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/PasswordBox */ "./node_modules/@okta/courage/src/views/forms/inputs/PasswordBox.js"));
+var CheckBox_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/CheckBox */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/CheckBox.js"));
 
-var _Radio = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/Radio */ "./node_modules/@okta/courage/src/views/forms/inputs/Radio.js"));
+var PasswordBox_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/PasswordBox */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/PasswordBox.js"));
 
-var _Select = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/Select */ "./node_modules/@okta/courage/src/views/forms/inputs/Select.js"));
+var Radio_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/Radio */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Radio.js"));
 
-var _InputGroup = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/InputGroup */ "./node_modules/@okta/courage/src/views/forms/inputs/InputGroup.js"));
+var Select_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/Select */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/Select.js"));
 
-var _TextBox = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/TextBox */ "./node_modules/@okta/courage/src/views/forms/inputs/TextBox.js"));
+var InputGroup_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/InputGroup */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/InputGroup.js"));
 
-var _Callout = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/views/components/Callout */ "./node_modules/@okta/courage/src/views/components/Callout.js"));
+var TextBox_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/forms/inputs/TextBox */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/inputs/TextBox.js"));
 
-var _backbone = _interopRequireDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
+var Callout_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/views/components/Callout */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Callout.js"));
 
-var _View = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/framework/View */ "./node_modules/@okta/courage/src/framework/View.js"));
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "./node_modules/backbone/backbone.js"));
 
-__webpack_require__(/*! ./util/scrollParent */ "./src/util/scrollParent.js");
+var View_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/framework/View */ "../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts"));
 
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+__webpack_require__(/*! ./util/scrollParent */ "./src/util/scrollParent.ts"); // The string will be returned unchanged. All templates should be precompiled.
 
-// The string will be returned unchanged. All templates should be precompiled.
-_View.default.prototype.compileTemplate = function (str) {
+
+View_1["default"].prototype.compileTemplate = function (str) {
   return function fakeTemplate() {
     return str;
   };
@@ -15184,21 +9526,18 @@ var events = {
   'change input': 'update',
   'keydown input': 'update',
   'keyup input': function keyupInput(e) {
-    if (_Keys.default.isEsc(e)) {
+    if (Keys_1["default"].isEsc(e)) {
       this.model.trigger('form:cancel');
     }
   }
 };
-
-var TextBoxForSigninWidget = _TextBox.default.extend({
+var TextBoxForSigninWidget = TextBox_1["default"].extend({
   events: events
 });
-
-var PasswordBoxForSigninWidget = _PasswordBox.default.extend({
+var PasswordBoxForSigninWidget = PasswordBox_1["default"].extend({
   events: events
 });
-
-var Form = _BaseForm.default.extend({
+var Form = BaseForm_1["default"].extend({
   scrollOnError: function scrollOnError() {
     // scrollOnError is true by default. Override to false if `scrollOnError` has been set to false in widget settings.
     var settings = this.options.settings;
@@ -15210,107 +9549,112 @@ var Form = _BaseForm.default.extend({
     return true;
   }
 });
-
 var Okta = {
-  Backbone: _backbone.default,
-  $: _jqueryWrapper.default,
-  _: _underscoreWrapper.default,
-  Handlebars: _handlebarsWrapper.default,
-  loc: _StringUtil.default.localize,
-  createButton: _ButtonFactory.default.create,
-  createCallout: _Callout.default.create,
-  registerInput: _InputRegistry.default.register,
-  Model: _Model.default,
+  Backbone: backbone_1["default"],
+  $: jquery_wrapper_1["default"],
+  _: underscore_wrapper_1["default"],
+  Handlebars: handlebars_wrapper_1["default"],
+  loc: StringUtil_1["default"].localize,
+  createButton: ButtonFactory_1["default"].create,
+  createCallout: Callout_1["default"].create,
+  registerInput: InputRegistry_1["default"].register,
+  Model: Model_1["default"],
   // TODO: BaseModel has been deprecated and shall not be public
   // remove this once clean up usage in widget.
-  BaseModel: _BaseModel.default,
-  Collection: _BaseCollection.default,
-  FrameworkView: _View.default,
-  View: _BaseView.default,
-  ListView: _Backbone.default,
-  Router: _BaseRouter.default,
-  Controller: _BaseController.default,
+  BaseModel: BaseModel_1["default"],
+  Collection: BaseCollection_1["default"],
+  FrameworkView: View_1["default"],
+  View: BaseView_1["default"],
+  ListView: Backbone_ListView_1["default"],
+  Router: BaseRouter_1["default"],
+  Controller: BaseController_1["default"],
   Form: Form,
   internal: {
     util: {
-      Util: _Util.default,
-      Cookie: _Cookie.default,
-      Clipboard: _Clipboard.default,
-      Logger: _Logger.default,
-      Class: _Class.default,
-      Keys: _Keys.default
+      Util: Util_1["default"],
+      Cookie: Cookie_1["default"],
+      Clipboard: Clipboard_1["default"],
+      Logger: Logger_1["default"],
+      Class: Class_1["default"],
+      Keys: Keys_1["default"]
     },
     views: {
       components: {
-        BaseDropDown: _BaseDropDown.default,
-        Notification: _Notification.default
+        BaseDropDown: BaseDropDown_1["default"],
+        Notification: Notification_1["default"]
       },
       forms: {
         helpers: {
-          FormUtil: _FormUtil.default,
-          SchemaFormFactory: _SchemaFormFactory.default
+          FormUtil: FormUtil_1["default"],
+          SchemaFormFactory: SchemaFormFactory_1["default"]
         },
         components: {
-          Toolbar: _Toolbar.default
+          Toolbar: Toolbar_1["default"]
         },
         inputs: {
           TextBox: TextBoxForSigninWidget,
           PasswordBox: PasswordBoxForSigninWidget,
-          CheckBox: _CheckBox.default,
-          Radio: _Radio.default,
-          Select: _Select.default,
-          InputGroup: _InputGroup.default
+          CheckBox: CheckBox_1["default"],
+          Radio: Radio_1["default"],
+          Select: Select_1["default"],
+          InputGroup: InputGroup_1["default"]
         }
       }
     },
     models: {
-      BaseSchema: _BaseSchema.default,
-      SchemaProperty: _SchemaProperty.default
+      BaseSchema: BaseSchema_1["default"],
+      SchemaProperty: SchemaProperty_1["default"]
     }
   }
 };
 Okta.registerInput('text', TextBoxForSigninWidget);
 Okta.registerInput('password', PasswordBoxForSigninWidget);
-Okta.registerInput('checkbox', _CheckBox.default);
-Okta.registerInput('radio', _Radio.default);
-Okta.registerInput('select', _Select.default);
-Okta.registerInput('group', _InputGroup.default);
-var _default = Okta;
-exports.default = _default;
+Okta.registerInput('checkbox', CheckBox_1["default"]);
+Okta.registerInput('radio', Radio_1["default"]);
+Okta.registerInput('select', Select_1["default"]);
+Okta.registerInput('group', InputGroup_1["default"]);
+exports.default = Okta;
 module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./src/empty.js":
+/***/ "./src/empty.ts":
 /*!**********************!*\
-  !*** ./src/empty.js ***!
+  !*** ./src/empty.ts ***!
   \**********************/
-/***/ (function(module, exports, __webpack_require__) {
+/***/ (function(module, exports) {
 
 "use strict";
-var __WEBPACK_AMD_DEFINE_RESULT__;
-
-// TODO: maybe replaced by
+ // TODO: maybe replaced by
 // https://github.com/Calvein/empty-module
 // https://github.com/crimx/empty-module-loader
-!(__WEBPACK_AMD_DEFINE_RESULT__ = (function () {}).call(exports, __webpack_require__, exports, module),
-		__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+
+exports.__esModule = true;
+exports.default = {
+  extend: function extend() {}
+};
+module.exports = exports.default;
 
 /***/ }),
 
-/***/ "./src/util/scrollParent.js":
+/***/ "./src/util/scrollParent.ts":
 /*!**********************************!*\
-  !*** ./src/util/scrollParent.js ***!
+  !*** ./src/util/scrollParent.ts ***!
   \**********************************/
-/***/ (function(__unused_webpack_module, __unused_webpack_exports, __webpack_require__) {
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
 
 "use strict";
 
 
-var _jqueryWrapper = _interopRequireDefault(__webpack_require__(/*! @okta/courage/src/util/jquery-wrapper */ "./node_modules/@okta/courage/src/util/jquery-wrapper.js"));
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
 
-function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+exports.__esModule = true;
 
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! @okta/courage/src/util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
 /*!
  * jQuery UI Scroll Parent @VERSION
  * http://jqueryui.com
@@ -15322,12 +9666,14 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
  * Modifications Copyright 2021 Okta, Inc.
  */
 // This is required because SIW doesn't want to include jqueryui even though it's an external dependency of courage
-_jqueryWrapper.default.fn.scrollParent = function (includeHidden) {
+
+
+jquery_wrapper_1["default"].fn.scrollParent = function (includeHidden) {
   var position = this.css("position"),
       excludeStaticParent = position === "absolute",
       overflowRegex = includeHidden ? /(auto|scroll|hidden)/ : /(auto|scroll)/,
       scrollParent = this.parents().filter(function () {
-    var parent = (0, _jqueryWrapper.default)(this);
+    var parent = (0, jquery_wrapper_1["default"])(this);
 
     if (excludeStaticParent && parent.css("position") === "static") {
       return false;
@@ -15335,8 +9681,5666 @@ _jqueryWrapper.default.fn.scrollParent = function (includeHidden) {
 
     return overflowRegex.test(parent.css("overflow") + parent.css("overflow-y") + parent.css("overflow-x"));
   }).eq(0);
-  return position === "fixed" || !scrollParent.length ? (0, _jqueryWrapper.default)(this[0].ownerDocument || document) : scrollParent;
+  return position === "fixed" || !scrollParent.length ? (0, jquery_wrapper_1["default"])(this[0].ownerDocument || document) : scrollParent;
 };
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/framework/Collection.ts":
+/*!***********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/framework/Collection.ts ***!
+  \***********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
+
+var STATE = '__STATE__',
+    FETCH_DATA = 'FETCH_DATA',
+    PAGINATION_DATA = 'PAGINATION_DATA',
+    DEFAULT_PARAMS = 'DEFAULT_PARAMS',
+    LINK_BY_HEADER = 'LINK_BY_HEADER',
+    XHR = 'XHR';
+/*
+ * Sets the next page URL on the collection from link headers
+ * See: http://www.rfc-editor.org/rfc/rfc5988.txt
+ *
+ * This method is looking for a link header with `rel="next"`
+ * An set's it as the next page's URL.
+ *
+ * If it doesn't find a next page, and current page is set by a link header
+ * it assumes we are at the last page and deletes the current `next`
+ */
+
+function setLinkHeadersPagination(collection, xhr) {
+  try {
+    var links = parseLinkHeader(xhr.getResponseHeader('link'));
+    collection[STATE].set(LINK_BY_HEADER, true);
+    collection.setPagination(links['next'].href);
+  } catch (e) {
+    if (collection[STATE].get(LINK_BY_HEADER)) {
+      collection.setPagination(null);
+    }
+  }
+}
+
+function parseQuery(url) {
+  var params = {},
+      rawQueryStr = url && url.split('?')[1],
+      queryString = rawQueryStr && decodeURIComponent(rawQueryStr.split('#')[0]).replace(/\+/g, ' '),
+      props = queryString ? queryString.split('&') : [];
+
+  for (var i = 0; i < props.length; i++) {
+    var parts = props[i].split('=');
+    params[parts.shift()] = parts.join('=');
+  }
+
+  return params;
+} // ################################################
+// # Source: https://gist.github.com/deiu/9335803
+// ################################################
+// unquote string (utility)
+
+
+function unquote(value) {
+  if (value.charAt(0) == '"' && value.charAt(value.length - 1) == '"') {
+    return value.substring(1, value.length - 1);
+  }
+
+  return value;
+}
+/*
+parse a Link header
+Link:<https://example.org/.meta>; rel=meta
+var r = parseLinkHeader(xhr.getResponseHeader('Link');
+r['meta']['href'] outputs https://example.org/.meta
+*/
+
+
+function parseLinkHeader(header) {
+  /* eslint max-statements: 0 */
+  var linkexp = /<[^>]*>\s*(\s*;\s*[^()<>@,;:"/[\]?={} \t]+=(([^()<>@,;:"/[\]?={} \t]+)|("[^"]*")))*(,|$)/g,
+      paramexp = /[^()<>@,;:"/[\]?={} \t]+=(([^()<>@,;:"/[\]?={} \t]+)|("[^"]*"))/g;
+  var matches = header.match(linkexp);
+  var rels = {};
+
+  for (var i = 0; i < matches.length; i++) {
+    var split = matches[i].split('>');
+    var href = split[0].substring(1);
+    var link = {
+      href: undefined,
+      rel: undefined
+    }; // TODO add type
+
+    link.href = href;
+    var s = split[1].match(paramexp);
+
+    for (var j = 0; j < s.length; j++) {
+      var paramsplit = s[j].split('=');
+      var name = paramsplit[0];
+      link[name] = unquote(paramsplit[1]);
+    }
+
+    if (link.rel !== undefined) {
+      rels[link.rel] = link;
+    }
+  }
+
+  return rels;
+} // ################################################
+// # /Source
+// ################################################
+//
+
+/**
+ *
+ * Archer.Collection is a standard [Backbone.Collection](http://backbonejs.org/#Collection) with pre-set `data`
+ * parameters and built in pagination - works with [http link headers](https://tools.ietf.org/html/rfc5988)
+ * out of the box:
+ *
+ * @class src/framework/Collection
+ * @extends external:Backbone.Collection
+ * @example
+ * var Users = Archer.Collection.extend({
+ *   url: '/api/v1/users'
+ *   params: {expand: true}
+ * });
+ * var users = new Users(null, {params: {type: 'new'}}),
+ *     $button = this.$('a.fetch-more');
+ *
+ * $button.click(function () {
+ *   users.fetchMore();
+ * });
+ *
+ * this.listenTo(users, 'sync', function () {
+ *   $button.toggle(users.hasMore());
+ * });
+ *
+ * collection.fetch(); //=> '/api/v1/users?expand=true&type=new'
+ */
+
+
+var Collection = backbone_1["default"].Collection.extend(
+/** @lends src/framework/Collection.prototype */
+{
+  /**
+   * Default fetch parameters
+   * @type {Object|Function}
+   */
+  params: {},
+  constructor: function constructor(models, options) {
+    var state = new backbone_1["default"].Model();
+    var defaultParams = underscore_wrapper_1["default"].defaults(options && options.params || {}, underscore_wrapper_1["default"].result(this, 'params') || {});
+    state.set(DEFAULT_PARAMS, defaultParams);
+    this[STATE] = state; // Adds support for child class to convert to ES6 Class.
+    // After conversion, `this.model` has to be a pure function to return Model Class.
+    // The changes below is trying to distinguish the ambiguity between a Class and normal function,
+    // as both are JavaScript function essentially.
+    // There are three ways to define class for `this.model`
+    // 1. Object properties: `model: BaseModel.extend({..})`
+    // 2. Function constructor:
+    // See example from
+    // - appversions/src/models/CustomType.js
+    // - appversions/src/models/EnumType.js
+    // - appversions/src/models/SignOnMode.js
+    // - authn-factors/src/models/Feature.js
+    // - shared/src/models/SamlAttribute.js
+    // 3. Function that returns a class.
+    //    model: function() { return BaseModel.extend({..}); }
+    //
+    // option 1 and 2 exists in code base today
+    // option 3 is introduced to support child class to convert to ES6 class.
+    // TODO: think of remove following check
+    // The reason for `this.model !== Backbone.Model` is because `this.model` is default to `Backbone.Model`
+    // set at Backbone.Collection.
+
+    if (underscore_wrapper_1["default"].isFunction(this.model) && this.model.length === 0 && this.model.isCourageModel !== true) {
+      this.model = underscore_wrapper_1["default"].result(this, 'model');
+    }
+
+    backbone_1["default"].Collection.apply(this, arguments);
+  },
+
+  /**
+   * See [Backbone Collection.sync](http://backbonejs.org/#Collection-sync).
+   */
+  sync: function sync(method, collection, options) {
+    var self = this,
+        success = options.success;
+
+    options.success = function (resp, status, xhr) {
+      // its important to set the pagination data *before* we call the success callback
+      // because we want the pagination data to be ready when the collection triggers the `sync` event
+      setLinkHeadersPagination(self, xhr);
+      success.apply(null, arguments);
+    };
+
+    return backbone_1["default"].Collection.prototype.sync.call(this, method, collection, options);
+  },
+
+  /**
+   * See [Backbone Collection.fetch](http://backbonejs.org/#Collection-fetch).
+   */
+  fetch: function fetch(options) {
+    options || (options = {});
+    var state = this[STATE],
+        xhr = state.get(XHR);
+    options.data = underscore_wrapper_1["default"].extend({}, state.get(DEFAULT_PARAMS), options.data || {});
+    options.fromFetch = true;
+    state.set(FETCH_DATA, options.data);
+
+    if (xhr && xhr.abort && options.abort !== false) {
+      xhr.abort();
+    }
+
+    xhr = backbone_1["default"].Collection.prototype.fetch.call(this, options);
+    state.set(XHR, xhr);
+    return xhr;
+  },
+
+  /**
+   * Set pagination data to get to the next page
+   * @param {Mixed} params
+   * @param {Object} [options]
+   * @param {Boolean} [options.fromFetch] should we include data from the previous fetch call in this object
+   * @example
+   * collection.setPagination({q: 'foo', page: '2'}); //=> {q: 'foo', page: '2'}
+   *
+   * collection.setPagination('/path/to/resource?q=baz&page=4'); //=> {q: 'baz', page: '4'}
+   *
+   * collection.setPagination('/path/to/resource'); //=> {}
+   *
+   * collection.fetch({data: {q: 'foo'}});
+   * collection.setPagination({page: 2}, {fromFetch: true}); //=> {q: 'foo', page: 2}
+   *
+   * any "falsy" value resets pagination
+   * collection.setPagination(); //=> {}
+   * collection.setPagination(null); //=> {}
+   * collection.setPagination(false); //=> {}
+   * collection.setPagination(''); //=> {}
+   * collection.setPagination(0); //=> {}
+   * @protected
+   */
+  setPagination: function setPagination(params, options) {
+    /* eslint complexity: [2, 8] */
+    if (underscore_wrapper_1["default"].isString(params) && params) {
+      params = parseQuery(params);
+    }
+
+    if (!underscore_wrapper_1["default"].isObject(params) || underscore_wrapper_1["default"].isArray(params) || !underscore_wrapper_1["default"].size(params)) {
+      params = null;
+    } else if (options && options.fromFetch) {
+      params = underscore_wrapper_1["default"].extend({}, this.getFetchData(), params);
+    }
+
+    this[STATE].set(PAGINATION_DATA, params);
+  },
+
+  /**
+   * Returns the `data` parameters applied in th most recent `fetch` call
+   * It will include parameters set by {@link #params} and optios.params passed to the constructor
+   * @return {Object}
+   * @protected
+   */
+  getFetchData: function getFetchData() {
+    return this[STATE].get(FETCH_DATA) || {};
+  },
+
+  /**
+   * Data object for constructing a request to fetch the next page
+   * @return {Object}
+   * @protected
+   */
+  getPaginationData: function getPaginationData() {
+    return this[STATE].get(PAGINATION_DATA) || {};
+  },
+
+  /**
+   * Does this collection have more data on the server (e.g is there a next "page")
+   * @return {Boolean}
+   */
+  hasMore: function hasMore() {
+    return underscore_wrapper_1["default"].size(this.getPaginationData()) > 0;
+  },
+
+  /**
+   * Get the next page from the server
+   * @return {Object} xhr returned by {@link #fetch}
+   */
+  fetchMore: function fetchMore() {
+    if (!this.hasMore()) {
+      throw new Error('Invalid Request');
+    }
+
+    return this.fetch({
+      data: this.getPaginationData(),
+      add: true,
+      remove: false,
+      update: true
+    });
+  },
+
+  /**
+   * See [Backbone Collection.reset](http://backbonejs.org/#Collection-reset).
+   */
+  reset: function reset(models, options) {
+    options || (options = {}); // only reset the pagination when reset is being called explicitly.
+    // this is to avoid link headers pagination being overriden and reset when
+    // fetching the collection using `collection.fetch({reset: true})`
+
+    if (!options.fromFetch) {
+      this.setPagination(null);
+    }
+
+    return backbone_1["default"].Collection.prototype.reset.apply(this, arguments);
+  },
+  // we want "where" to be able to search through derived properties as well
+  where: function where(attrs, first) {
+    if (underscore_wrapper_1["default"].isEmpty(attrs)) {
+      return first ? void 0 : [];
+    }
+
+    return this[first ? 'find' : 'filter'](function (model) {
+      for (var key in attrs) {
+        if (attrs[key] !== model.get(key)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  },
+
+  /**
+   * See [Backbone Collection.create](http://backbonejs.org/#Collection-create).
+   */
+  create: function create(model, options) {
+    options || (options = {});
+
+    if (!underscore_wrapper_1["default"].result(model, 'urlRoot')) {
+      options.url = underscore_wrapper_1["default"].result(this, 'url');
+    }
+
+    return backbone_1["default"].Collection.prototype.create.call(this, model, options);
+  }
+});
+/**
+ * It's used for distinguishing the ambiguity from _.isFunction()
+ * which returns True for both a JavaScript Class constructor function
+ * and normal function. With this flag, we can tell a function is actually
+ * a Collection Class.
+ * This flag is added in order to support the type of a parameter can be
+ * either a Class or pure function that returns a Class.
+ */
+
+Collection.isCourageCollection = true;
+exports.default = Collection;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/framework/ListView.ts":
+/*!*********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/framework/ListView.ts ***!
+  \*********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint-disable max-statements */
+
+var View_1 = __importDefault(__webpack_require__(/*! ./View */ "../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+/**
+   * Archer.ListView is a {@link src/framework/View} that operates on a
+   * collection and builds a list of "things" of the same type.
+   *
+   * Automagically adds, removes and sorts upon standard collection events.
+   *
+   * Listen to collection events so the ListView will do the right thing when
+   * a model is added or the collection is reset or sorted.
+   *
+   * @class src/framework/ListView
+   * @extends src/framework/View
+   * @param {Object} options options hash
+   * @param {Object} options.collection The collection which this view operates on
+   * @example
+   * var UserList = Archer.ListView.extend({
+   *   tagName: 'ul',
+   *   item: '<li>{{fname}} {{lname}}</li>'
+   * });
+   *
+   * var users = new Archer.Collection([
+   *   {fname: 'John', lname: 'Doe'},
+   *   {fname: 'Jane', lname: 'Doe'}
+   * ]);
+   *
+   * var userList = new UserList({collection: users}).render();
+   * userList.el; //=> "<ul><li>John Doe</li><li>Jane Doe</li></ul>"
+   *
+   * users.push({fname: 'Jim', lname: 'Doe'});
+   * userList.el; //=> "<ul><li>John Doe</li><li>Jane Doe</li><li>Jim Doe</li></ul>"
+   *
+   * users.first().destroy();
+   * userList.el; //=> "<ul><li>Jane Doe</li><li>Jim Doe</li></ul>"
+   */
+
+
+exports.default = View_1["default"].extend(
+/** @lends src/framework/ListView.prototype */
+{
+  constructor: function constructor() {
+    View_1["default"].apply(this, arguments);
+
+    if (!this.collection) {
+      throw new Error('Missing collection');
+    }
+
+    this.listenTo(this.collection, 'reset sort', this.reset);
+    this.listenTo(this.collection, 'add', this.addItem);
+
+    if (this.fetchCollection) {
+      this.collection.fetch();
+    } else {
+      this.collection.each(this.addItem, this);
+    }
+  },
+
+  /**
+     * The view/template we will use to render each model in the collection.
+     * @type {String|module:Okta.View}
+     */
+  item: null,
+
+  /**
+     * A selector in the local template where to append each item
+     * @type {String}
+     */
+  itemSelector: null,
+
+  /**
+     * Empty the list and re-add everything from the collection.
+     * Usefull for handling `collection.reset()` or for handling the initial load
+     * @protected
+     */
+  reset: function reset() {
+    var _this = this;
+
+    this.removeChildren();
+    this.collection.each(function (model, index) {
+      _this.addItem(model, index);
+    });
+    return this;
+  },
+
+  /**
+     * Add an item view to the list that will represent one model from the collection
+     *
+     * Listen to the model so when it is destoyed or removed from the collection
+     * this item will remove itself from the list
+     *
+     * @param {Backbone.Model} model The model this row operates on
+     * @protected
+     */
+  addItem: function addItem(model) {
+    var view = this.add(this.item, this.itemSelector, {
+      options: {
+        model: model
+      }
+    }).last();
+
+    if (this.state && this.state.get('trackItemAdded')) {
+      this.state.trigger('itemAdded', view);
+    }
+
+    view.listenTo(model, 'destroy remove', view.remove);
+    return this;
+  },
+  addShowMore: underscore_wrapper_1["default"].noop
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/framework/Model.ts":
+/*!******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/framework/Model.ts ***!
+  \******************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
+
+var Logger_1 = __importDefault(__webpack_require__(/*! ../util/Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
+/**
+   * Archer.Model is a standard [Backbone.Model](http://backbonejs.org/#Model) with a few additions:
+   *
+   * - {@link src/framework/Model#derived Derived properties}
+   * - {@link src/framework/Model#props Built in schema validation}
+   * - {@link src/framework/Model#local Private properties (with schema validation)}
+   * - {@link src/framework/Model#flat Flattening of nested objects}
+   *
+   * Both derived and private properties are filtered out when sending the data to the server.
+   *
+   * See [Backbone.Model](http://backbonejs.org/#Model-constructor).
+   *
+   * @class src/framework/Model
+   * @extends external:Backbone.Model
+   * @param {Object} [attributes] - Initial model attributes (data)
+   * @param {Object} [options] - Options hash
+   * @example
+   * var Person = Archer.Model.extend({
+   *   props: {
+   *     'fname': 'string',
+   *     'lname': 'string'
+   *   },
+   *   local: {
+   *     isLoggedIn: 'boolean'
+   *   },
+   *   derived: {
+   *     name: {
+   *       deps: ['fname', 'lname'],
+   *       fn: function (fname, lname) {
+   *         return fname + ' ' + lname;
+   *       }
+   *     }
+   *   }
+   * });
+   * var model = new Person({fname: 'Joe', lname: 'Doe'});
+   * model.get('name'); //=> "Joe Doe"
+   * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
+   *
+   * model.set('isLoggedIn', true);
+   * model.get('isLoggedIn'); //=> true
+   * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
+   */
+
+
+var Model;
+
+function flatten(value, objectTypeFields, key, target) {
+  var filter = underscore_wrapper_1["default"].contains(objectTypeFields, key);
+  target || (target = {});
+
+  if (!filter && underscore_wrapper_1["default"].isObject(value) && !underscore_wrapper_1["default"].isArray(value) && !underscore_wrapper_1["default"].isFunction(value)) {
+    underscore_wrapper_1["default"].each(value, function (val, i) {
+      flatten(val, objectTypeFields, key ? key + '.' + i : i, target);
+    });
+  } // Case where target is an empty object. Guard against returning {undefined: undefined}.
+  else if (key !== undefined) {
+    target[key] = value;
+  }
+
+  return target;
+}
+
+function unflatten(data) {
+  underscore_wrapper_1["default"].each(data, function (value, key, data) {
+    if (key.indexOf('.') == -1) {
+      return;
+    }
+
+    var part,
+        ref = data,
+        parts = key.split('.');
+
+    while ((part = parts.shift()) !== undefined) {
+      if (!ref[part]) {
+        ref[part] = parts.length ? {} : value;
+      }
+
+      ref = ref[part];
+    }
+
+    delete data[key];
+  });
+  return data;
+}
+
+function createMessage(field, msg) {
+  var obj = {};
+  obj[field.name] = msg;
+  return obj;
+}
+
+function normalizeSchemaDef(field, name) {
+  var target;
+
+  if (underscore_wrapper_1["default"].isString(field)) {
+    target = {
+      type: field
+    };
+  } else if (underscore_wrapper_1["default"].isArray(field)) {
+    target = {
+      type: field[0],
+      required: field[1],
+      value: field[2]
+    };
+  } else {
+    target = underscore_wrapper_1["default"].clone(field);
+  }
+
+  underscore_wrapper_1["default"].defaults(target, {
+    required: false,
+    name: name
+  });
+  return target;
+}
+
+function capitalize(string) {
+  return string.toLowerCase().replace(/\b[a-z]/g, function (letter) {
+    return letter.toUpperCase();
+  });
+}
+
+function _validateRegex(value, pattern, error) {
+  if (!pattern.test(value)) {
+    return error;
+  }
+}
+
+var StringFormatValidators = {
+  /*eslint max-len: 0 */
+  email: function email(value) {
+    // Taken from  http://emailregex.com/ on 2017-03-06.
+    var pattern = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_EMAIL);
+  },
+  uri: function uri(value) {
+    // source: https://mathiasbynens.be/demo/url-regex
+    var pattern = /^(?:(?:https?|ftp):\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)(?:\.(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)*(?:\.(?:[a-z\u00a1-\uffff]{2,}))\.?)(?::\d{2,5})?(?:[/?#]\S*)?$/i;
+    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_URI);
+  },
+  ipv4: function ipv4(value) {
+    // source: https://www.safaribooksonline.com/library/view/regular-expressions-cookbook/9780596802837/ch07s16.html
+    var pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_IPV4);
+  },
+  hostname: function hostname(value) {
+    // source: http://www.regextester.com/23
+    var pattern = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])$/;
+    return _validateRegex(value, pattern, Model.ERROR_INVALID_FORMAT_HOSTNAME);
+  }
+};
+
+function validateStringFormat(field, value) {
+  var validator = StringFormatValidators[field.format];
+
+  if (field.format && !validator) {
+    throw new TypeError(field.format + ' is not a supported string format');
+  }
+
+  return validator && validator(value);
+}
+
+function validateString(field, value) {
+  var createMessageWith = underscore_wrapper_1["default"].partial(createMessage, field),
+      invalidFormat = validateStringFormat(field, value);
+
+  if (invalidFormat) {
+    return createMessageWith(invalidFormat);
+  }
+
+  if (value && field.minLength && value.length < field.minLength) {
+    // @ts-ignore
+    return createMessageWith(Model.ERROR_STRING_STRING_MIN_LENGTH, value.length);
+  }
+
+  if (value && field.maxLength && value.length > field.maxLength) {
+    // @ts-ignore
+    return createMessageWith(Model.ERROR_STRING_STRING_MAX_LENGTH, value.length);
+  }
+}
+
+function _validateField(field, value) {
+  /* eslint complexity: [2, 25], max-statements: [2, 27] */
+  var createMessageWith = underscore_wrapper_1["default"].partial(createMessage, field),
+      isDefined = !underscore_wrapper_1["default"].isUndefined(value) && !underscore_wrapper_1["default"].isNull(value),
+      checkType,
+      errorMessage; // If using an array validator, perform the validation
+
+  if (Array.isArray(field.validate)) {
+    var output_1 = [];
+    var foundError_1 = false;
+    var result_1;
+    field.validate.forEach(function (item) {
+      if (!value) {
+        result_1 = false;
+      } else {
+        switch (item.type.toLowerCase()) {
+          case 'regex':
+            result_1 = new RegExp(item.value.pattern, item.value.flags || '').test(value);
+            break;
+
+          default:
+            result_1 = false;
+        }
+      } // Append the result.
+
+
+      foundError_1 = foundError_1 || !result_1;
+      output_1.push({
+        // eslint-disable-next-line no-prototype-builtins
+        message: item.hasOwnProperty('message') ? item.message : '',
+        passed: result_1
+      });
+    });
+
+    if (foundError_1) {
+      return createMessageWith(output_1);
+    }
+
+    return;
+  } // check required fields
+
+
+  if (field.required && (!isDefined || underscore_wrapper_1["default"].isNull(value) || value === '')) {
+    return createMessageWith(Model.ERROR_BLANK);
+  } // check type
+
+
+  checkType = underscore_wrapper_1["default"]['is' + capitalize(field.type)];
+
+  if (isDefined && field.type != 'any' && (!underscore_wrapper_1["default"].isFunction(checkType) || !checkType(value))) {
+    return createMessageWith(Model.ERROR_WRONG_TYPE);
+  } // validate string format
+
+
+  if (value && field.type == 'string') {
+    var error = validateString(field, value);
+
+    if (error) {
+      return error;
+    }
+  } // check pre set values (enum)
+
+
+  if (isDefined && field.values && !underscore_wrapper_1["default"].contains(field.values, value)) {
+    return createMessageWith(Model.ERROR_NOT_ALLOWED);
+  } // check validate method
+
+
+  if (underscore_wrapper_1["default"].isFunction(field.validate)) {
+    var result = field.validate(value);
+
+    if (underscore_wrapper_1["default"].isString(result) && result) {
+      return createMessageWith(result);
+    } else if (result === false) {
+      return createMessageWith(Model.ERROR_INVALID);
+    }
+  } // check array items
+
+
+  if (isDefined && field.type == 'array' && (errorMessage = validateArrayField(field, value))) {
+    return createMessageWith(errorMessage);
+  }
+}
+
+function validateArrayField(field, arr) {
+  if (field.minItems && arr.length < field.minItems) {
+    return 'model.validation.field.array.minItems';
+  } else if (field.maxItems && arr.length > field.maxItems) {
+    return 'model.validation.field.array.maxItems';
+  } else if (field.uniqueItems && arr.length > underscore_wrapper_1["default"].uniq(arr).length) {
+    return Model.ERROR_IARRAY_UNIQUE;
+  } else if (field.items) {
+    /* eslint max-depth: [2, 3] */
+    var arrayField = normalizeSchemaDef(field.items, 'placeholder');
+
+    for (var i = 0; i < arr.length; i++) {
+      var value = arr[i];
+
+      var error = _validateField(arrayField, value);
+
+      if (error) {
+        return error['placeholder'];
+      }
+    }
+  }
+}
+
+Model = backbone_1["default"].Model.extend(
+/** @lends src/framework/Model.prototype */
+{
+  /**
+     * Pass props as an object to extend, describing the observable properties of your model. The props
+     * properties should not be set on an instance, as this won't define new properties, they should only be passed to
+     * extend.
+     * Properties can be defined in three different ways:
+     *
+     * - As a string with the expected dataType. One of string, number, boolean, array, object, date, or any.
+     * Eg: `name: 'string'`.
+     * - An array of `[dataType, required, default]`
+     * - An object `{type: 'string', format: '', required: true, value: '', values: [], validate: function() {}`
+     *   - `value` will be the value that the property will be set to if it is undefined, either by not being set during
+     *   initialization, or by being explicitly set to undefined.
+     *   - `format` is a json-schame derived string format. Supported formats are: `email`, `uri`, `hostname` and `ipv4`.
+     *   - If `required` is true, one of two things will happen. If a default is set for the property, the property will
+     *   start with that value. If a default is not set for the property, validation will fail
+     *   - If `values` array is passed, then you'll be able to change a property to one of those values only.
+     *   - If `validate` is defined, it should return false or a custom message string when the validation fails.
+     *   - If the type is defined as `array`, the array elements could be defined by `minItems` (Number),
+     *   `uniqueItems` (Boolean) and `items` (a field definition such as this one that will validate each array member)
+     *   To the `validate` method
+     *   - Trying to set a property to an invalid type will raise an exception.
+     *
+     * @type {Mixed|Function}
+     * @example
+     * var Person = Model.extend({
+     *   props: {
+     *     name: 'string',
+     *     age: 'number',
+     *     paying: ['boolean', true, false], //required attribute, defaulted to false
+     *     type: {
+     *       type: 'string',
+     *       values: ['regular-hero', 'super-hero', 'mega-hero']
+     *     },
+     *     likes: {
+     *       type: 'string',
+     *       validate: function (value) {
+     *         return /^[\w]+ing$/.test(value)
+     *       }
+     *     }
+     *   }
+     * });
+     */
+  props: {},
+
+  /**
+     * Derived properties (also known as computed properties) are properties of the model that depend on the
+     * other (props, local or even derived properties to determine their value. Best demonstrated with an example:
+     *
+     * Each derived property, is defined as an object with the current properties:
+     *
+     * - `deps` {Array} - An array of property names which the derived property depends on.
+     * - `fn` {Function} - A function which returns the value of the computed property. It is called in the context of
+     * the current object, so that this is set correctly.
+     * - `cache` {Boolean} -  - Whether to cache the property. Uncached properties are computed every time they are
+     * accessed. Useful if it depends on the current time for example. Defaults to `true`.
+     *
+     * Derived properties are retrieved and fire change events just like any other property. They cannot be set
+     * directly.
+     * @type {Object|Function}
+     * @example
+     * var Person = Model.extend({
+     *   props: {
+     *     firstName: 'string',
+     *     lastName: 'string'
+     *   },
+     *   derived: {
+     *     fullName: {
+     *       deps: ['firstName', 'lastName'],
+     *       fn: function (firstName, lastName) {
+     *         return firstName + ' ' + lastName;
+     *       }
+     *     }
+     *   }
+     * });
+     *
+     * var person = new Person({ firstName: 'Phil', lastName: 'Roberts' })
+     * console.log(person.get('fullName')) //=> "Phil Roberts"
+     *
+     * person.set('firstName', 'Bob');
+     * console.log(person.get('fullName')) //=> "Bob Roberts"
+     */
+  derived: {},
+
+  /**
+     * local properties are defined and work in exactly the same way as {@link src/framework/Model#props|props}, but generally only exist for
+     * the lifetime of the page.
+     * They would not typically be persisted to the server, and are not returned by calls to {@link src/framework/Model#toJSON|toJSON}.
+     *
+     * @type {Object|Function}
+     * @example
+     * var Person = Model.extend({
+     *   props: {
+     *     name: 'string',
+     *   },
+     *   local: {
+     *     isLoggedIn: 'boolean'
+     *   }
+     * );
+     */
+  local: {},
+
+  /**
+     * Flatten the payload into dot notation string keys:
+     *
+     * @type {Boolean|Function}
+     * @example
+     * var Person = Model.extend({
+     *   props: {
+     *     'profile.fname': 'string',
+     *     'profile.lname': 'string',
+     *     'profile.languages': 'object'
+     *   },
+     *   flat: true
+     * });
+     * var person = new Person({'profile': {
+     *                            'fname': 'John',
+     *                            'lname': 'Doe',
+     *                            'languages': {name: "English", value: "EN"}
+     *                         }}, {parse: true});
+     * person.get('profile'); //=> undefined
+     * person.get('profile.fname'); //=> 'John'
+     * person.get('profile.lname'); //=> 'Doe'
+     * person.get('profile.languages'); //=> {name: "English", value: "EN"}
+     * person.get('profile.languages.name'); //=> undefined
+     * person.toJSON(); //=> {'profile': {'fname': 'John'} }
+     */
+  flat: true,
+
+  /**
+     * @deprecated
+     * @alias Backbone.Model#defaults
+     */
+  defaults: {},
+  constructor: function constructor(options) {
+    this.options = options || {};
+    var schema = this['__schema__'] = {
+      computedProperties: undefined,
+      props: undefined,
+      derived: undefined,
+      local: undefined
+    },
+        objectTypeFields = [];
+    schema.computedProperties = {};
+    schema.props = underscore_wrapper_1["default"].clone(underscore_wrapper_1["default"].result(this, 'props') || {});
+    schema.derived = underscore_wrapper_1["default"].clone(underscore_wrapper_1["default"].result(this, 'derived') || {});
+    schema.local = underscore_wrapper_1["default"].clone(underscore_wrapper_1["default"].result(this, 'local') || {});
+    var defaults = {};
+    underscore_wrapper_1["default"].each(underscore_wrapper_1["default"].extend({}, schema.props, schema.local), function (options, name) {
+      var schemaDef = normalizeSchemaDef(options, name);
+
+      if (!underscore_wrapper_1["default"].isUndefined(schemaDef.value)) {
+        defaults[name] = schemaDef.value;
+      }
+
+      if (schemaDef.type === 'object') {
+        objectTypeFields.push(name);
+      }
+    }, this);
+
+    if (underscore_wrapper_1["default"].size(defaults)) {
+      var localDefaults = underscore_wrapper_1["default"].result(this, 'defaults');
+
+      this.defaults = function () {
+        return underscore_wrapper_1["default"].defaults({}, defaults, localDefaults);
+      };
+    } // override `validate`
+
+
+    this.validate = underscore_wrapper_1["default"].wrap(this.validate, function (validate) {
+      var args = underscore_wrapper_1["default"].rest(arguments),
+          res = underscore_wrapper_1["default"].extend(this._validateSchema.apply(this, args), validate.apply(this, args));
+      return underscore_wrapper_1["default"].size(res) && res || undefined;
+    }); // override `parse`
+
+    this.parse = underscore_wrapper_1["default"].wrap(this.parse, function (parse) {
+      var target = parse.apply(this, underscore_wrapper_1["default"].rest(arguments));
+
+      if (underscore_wrapper_1["default"].result(this, 'flat')) {
+        target = flatten(target, objectTypeFields);
+      }
+
+      return target;
+    });
+    backbone_1["default"].Model.apply(this, arguments);
+    underscore_wrapper_1["default"].each(schema.derived, function (options, name) {
+      schema.computedProperties[name] = this.__getDerivedValue(name); // set initial value;
+
+      var deps = options.deps || [];
+
+      if (deps.length) {
+        this.on('cache:clear change:' + deps.join(' change:'), function () {
+          var value = this.__getDerivedValue(name);
+
+          if (value !== schema.computedProperties[name]) {
+            schema.computedProperties[name] = value;
+            this.trigger('change:' + name, this, value);
+          }
+        }, this);
+      }
+    }, this);
+    this.on('sync', function () {
+      this.__syncedData = this.toJSON();
+    }, this);
+  },
+  validate: function validate() {},
+
+  /**
+     * Check if the schema settings allow this field to exist in the model
+     * @param  {String} key
+     * @return {Boolean}
+     */
+  allows: function allows(key) {
+    var schema = this['__schema__'],
+        all = underscore_wrapper_1["default"].extend({}, schema.props, schema.local);
+
+    if (!underscore_wrapper_1["default"].has(all, key)) {
+      Logger_1["default"].warn('Field not defined in schema', key);
+    }
+
+    return true;
+  },
+
+  /**
+     * Returns the schema for the specific property
+     *
+     * @param propName - The name of the property
+     * @returns {*} | null
+     */
+  getPropertySchema: function getPropertySchema(propName) {
+    var schema = this['__schema__'];
+    return underscore_wrapper_1["default"].reduce([schema.props, schema.local], function (result, options) {
+      return result || normalizeSchemaDef(options[propName], propName);
+    }, null);
+  },
+  set: function set(key, val) {
+    var attrs;
+
+    if (_typeof(key) === 'object') {
+      attrs = key;
+    } else {
+      (attrs = {})[key] = val;
+    } // Don't override a computed properties
+
+
+    underscore_wrapper_1["default"].each(attrs, function (value, key) {
+      if (underscore_wrapper_1["default"].has(this['__schema__'].derived, key)) {
+        throw 'overriding derived properties is not supported: ' + key;
+      }
+    }, this); // Schema validation
+
+    var errorFields = [];
+    underscore_wrapper_1["default"].each(attrs, function (value, key) {
+      this.allows(key) || errorFields.push(key);
+    }, this);
+
+    if (errorFields.length) {
+      throw 'field not allowed: ' + errorFields.join(', ');
+    }
+
+    return backbone_1["default"].Model.prototype.set.apply(this, arguments);
+  },
+  get: function get(attr) {
+    var schema = this['__schema__'];
+
+    if (underscore_wrapper_1["default"].has(schema.derived, attr)) {
+      if (schema.derived[attr].cache !== false) {
+        return schema.computedProperties[attr];
+      } else {
+        return this.__getDerivedValue(attr);
+      }
+    }
+
+    return backbone_1["default"].Model.prototype.get.apply(this, arguments);
+  },
+
+  /**
+     * Return a shallow copy of the model's attributes for JSON stringification.
+     * This can be used for persistence, serialization, or for augmentation before being sent to the server.
+     * The name of this method is a bit confusing, as it doesn't actually return a JSON string —
+     * but I'm afraid that it's the way that the JavaScript API for JSON.stringify works.
+     *
+     * See [Backbone.Model.toJSON](http://backbonejs.org/#Model-toJSON)
+     *
+     * @param  {Object} options
+     * @return {Object}
+     * @example
+     * var artist = new Model({
+     *   firstName: 'Wassily',
+     *   lastName: 'Kandinsky'
+     * });
+     *
+     * artist.set({birthday: 'December 16, 1866'});
+     * JSON.stringify(artist); //=> {'firstName':'Wassily','lastName':'Kandinsky','birthday':'December 16, 1866'}
+     */
+  toJSON: function toJSON(options) {
+    options || (options = {});
+    var res = underscore_wrapper_1["default"].clone(backbone_1["default"].Model.prototype.toJSON.apply(this, arguments)),
+        schema = this['__schema__']; // cleanup local properties
+
+    if (!options.verbose) {
+      res = underscore_wrapper_1["default"].omit(res, underscore_wrapper_1["default"].keys(schema.local));
+    } else {
+      // add derived properties
+      underscore_wrapper_1["default"].each(schema.derived, function (options, name) {
+        res[name] = this.get(name);
+      }, this);
+    }
+
+    if (this.flat) {
+      res = unflatten(res);
+    }
+
+    return res;
+  },
+
+  /**
+     * Removes all attributes from the model, including the id attribute.
+     * Fires a `"change"` event unless `silent` is passed as an option.
+     * Sets the default values to the model
+     * @param {Object} [options]
+     */
+  reset: function reset(options) {
+    this.clear(options);
+    this.set(underscore_wrapper_1["default"].result(this, 'defaults'), options);
+  },
+
+  /**
+     * Is the data on the model has local modifications since the last sync event?
+     * @return {Boolean} is the model in sync with the server
+     */
+  isSynced: function isSynced() {
+    return underscore_wrapper_1["default"].isEqual(this.__syncedData, this.toJSON());
+  },
+
+  /**
+     * validate a specific field in the model.
+     * @param  {String} key
+     * @return {Object} returns `{fieldName: errorMessage}` if invalid, otherwise undefined.
+     * @readonly
+     */
+  validateField: function validateField(key) {
+    var schema = key && this.getPropertySchema(key);
+    return schema && _validateField(schema, this.get(key));
+  },
+
+  /**
+     * Runs local schema validation. Invoked internally by {@link src/framework/Model#validate|validate}.
+     * @return {Object}
+     * @protected
+     */
+  _validateSchema: function _validateSchema() {
+    var schema = this['__schema__'];
+    return underscore_wrapper_1["default"].reduce(underscore_wrapper_1["default"].extend({}, schema.props, schema.local), function (memo, options, name) {
+      return underscore_wrapper_1["default"].extend(memo, this.validateField(name) || {});
+    }, {}, this);
+  },
+  __getDerivedValue: function __getDerivedValue(name) {
+    var options = this['__schema__'].derived[name];
+
+    if (underscore_wrapper_1["default"].isString(options)) {
+      var key = options;
+      options = {
+        deps: [key],
+        fn: function fn() {
+          return this.get(key);
+        }
+      };
+    }
+
+    var deps = options.deps || [];
+    return options.fn.apply(this, underscore_wrapper_1["default"].map(deps, this.get, this));
+  }
+}, {
+  ERROR_BLANK: 'model.validation.field.blank',
+  ERROR_WRONG_TYPE: 'model.validation.field.wrong.type',
+  ERROR_NOT_ALLOWED: 'model.validation.field.value.not.allowed',
+  ERROR_INVALID: 'model.validation.field.invalid',
+  ERROR_IARRAY_UNIQUE: 'model.validation.field.array.unique',
+  ERROR_INVALID_FORMAT_EMAIL: 'model.validation.field.invalid.format.email',
+  ERROR_INVALID_FORMAT_URI: 'model.validation.field.invalid.format.uri',
+  ERROR_INVALID_FORMAT_IPV4: 'model.validation.field.invalid.format.ipv4',
+  ERROR_INVALID_FORMAT_HOSTNAME: 'model.validation.field.invalid.format.hostname',
+  ERROR_STRING_STRING_MIN_LENGTH: 'model.validation.field.string.minLength',
+  ERROR_STRING_STRING_MAX_LENGTH: 'model.validation.field.string.maxLength'
+});
+/**
+ * It's used for distinguishing the ambiguity from _.isFunction()
+ * which returns True for both a JavaScript Class constructor function
+ * and normal function. With this flag, we can tell a function is actually
+ * a Model Class.
+ * This flag is added in order to support the type of a parameter can be
+ * either a Class or pure function that returns a Class.
+ */
+
+Model.isCourageModel = true;
+exports.default = Model;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts":
+/*!*****************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts ***!
+  \*****************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
+
+var CHILDREN = '__children__',
+    RENDERED = '__rendered__',
+    PARENT = '__parent__',
+    CHILD_DEFINITIONS = '__children_definitions__',
+    ADD_TO_CONTAINER = '__add_to_container__';
+
+function getIndex(container, view) {
+  for (var i = 0; i < container[CHILDREN].length; i++) {
+    if (view.cid === container[CHILDREN][i].cid) {
+      return i;
+    }
+  }
+}
+
+function noop() {}
+
+function doRender(view) {
+  view[RENDERED] = true;
+  var html = view.renderTemplate(view.template);
+
+  if (html) {
+    view.$el.html(html);
+  } else if (view.length) {
+    view.$el.empty();
+  }
+
+  view.each(function (view) {
+    view[ADD_TO_CONTAINER]();
+  });
+}
+
+function subscribeEvents(view) {
+  var isEventPropertyRe = /^(?!(?:delegate|undelegate|_))([a-zA-Z0-9]+)(?:Events)$/;
+  underscore_wrapper_1["default"].each(underscore_wrapper_1["default"].allKeys(view), function (key) {
+    var matchKeys = key.match(isEventPropertyRe);
+
+    if (!matchKeys) {
+      return;
+    }
+
+    var bindings = underscore_wrapper_1["default"].result(view, key),
+        entity = view.options[matchKeys[1]] || view[matchKeys[1]];
+
+    if (!entity || !underscore_wrapper_1["default"].isObject(bindings) || !underscore_wrapper_1["default"].isFunction(entity.trigger)) {
+      return;
+    }
+
+    underscore_wrapper_1["default"].each(bindings, function (callback, event) {
+      var callbacks = underscore_wrapper_1["default"].isFunction(callback) ? [callback] : underscore_wrapper_1["default"].reduce(callback.split(/\s+/), function (arr, name) {
+        if (underscore_wrapper_1["default"].isFunction(view[name])) {
+          arr.push(view[name]);
+        }
+
+        return arr;
+      }, []);
+      underscore_wrapper_1["default"].each(callbacks, function (cb) {
+        view.listenTo(entity, event, cb);
+      });
+    });
+  });
+}
+/**
+   * A View operates on a string template, an token based template, or a model based template, with a few added hooks.
+   * It provides a collection of child views, when a child view could be a View or another View.
+   * Conceptually, if we were in a file system, the View is a folder, when the concrete child views are files,
+   * and the child Views are sub folders.
+   *
+   * *Technically, when using a View as a container, it could have its own concrete logic,
+   * but conceptually we like to keep it separated so a view is either a concrete view or a collection of child views.*
+   *
+   * In addition to the standard backbone options, we added `settings` and `state` as first class options.
+   * it will automatically assign `options` to `this.options` as an instance member.
+   *
+   * See [Backbone.View](http://backbonejs.org/#View).
+   *
+   * @class src/framework/View
+   * @extends external:Backbone.View
+   * @param {Object} [options] options hash
+   * @example
+   * var DocumentView = Archer.View.extend({
+   *   template: [
+   *     '<header></header>',
+   *     '<article></article>',
+   *     '<footer></footer>'
+   *   ].join(''),
+   *   children: [[HeaderView, 'header'], [ContentView, 'article'], [FooterView, 'footer']]
+   * });
+   */
+
+
+var View = backbone_1["default"].View.extend(
+/** @lends src/framework/View.prototype */
+{
+  /**
+     * An object listing events and callback bind to this.{entity}
+     * @name *Events
+     * @memberof src/framework/View
+     * @type {(Object|Function)}
+     * @instance
+     * @example
+     * var FooView = View.extend({
+     *   modelEvents: {
+     *     'change:name': 'render'
+     *   }
+     * })
+     * //equivalent to ==>
+     * var FooView = View.extend({
+     *   initialize: function() {
+     *     this.listenTo(this.model, 'change:name', this.render);
+     *   }
+     * });
+     *
+     *
+     * //Multiple callbacks:
+     * var FooView = View.extend({
+     *   modelEvents: {
+     *     'change:name': 'render foo'
+     *   },
+     *   foo: function() {}
+     * });
+     *
+     * //Callbacks As Function:
+     * var FooView = View.extend({
+     *   stateEvents: {
+     *     'change': function() {
+     *   }
+     * });
+     *
+     * //Event Configuration As Function
+     * var FooView = View.extend({
+     *   collectionEvents: function() {
+     *     var events = { 'change:name deleteItem': 'render' };
+     *     events['changeItem'] = 'spin';
+     *     events['addItem'] = function() {};
+     *     return events;
+     *   }
+     * });
+     */
+  constructor: function constructor(options) {
+    /* eslint max-statements: [2, 17] */
+    this.options = options || {};
+    underscore_wrapper_1["default"].extend(this, underscore_wrapper_1["default"].pick(this.options, 'state', 'settings')); // init per-instance children collection
+
+    this[CHILDREN] = [];
+    this[RENDERED] = false;
+    this[PARENT] = null;
+    this[CHILD_DEFINITIONS] = this.children; // we want to make sure initialize is triggered *after* we append the views from the `this.views` array
+
+    var initialize = this.initialize;
+    this.initialize = noop;
+    backbone_1["default"].View.apply(this, arguments);
+    underscore_wrapper_1["default"].each(underscore_wrapper_1["default"].result(this, CHILD_DEFINITIONS), function (childDefinition) {
+      this.add.apply(this, underscore_wrapper_1["default"].isArray(childDefinition) ? childDefinition : [childDefinition]);
+    }, this);
+    delete this[CHILD_DEFINITIONS];
+    var autoRender = underscore_wrapper_1["default"].result(this, 'autoRender');
+
+    if (autoRender && this.model) {
+      var event = underscore_wrapper_1["default"].isArray(autoRender) ? underscore_wrapper_1["default"].map(autoRender, function (field) {
+        return 'change:' + field;
+      }).join(' ') : 'change';
+      this.listenTo(this.model, event, function () {
+        this.render();
+      });
+    }
+
+    this.initialize = initialize;
+    this.initialize.apply(this, arguments);
+    subscribeEvents(this);
+  },
+
+  /**
+     * Unregister view from container
+     * Note: this will not remove the view from the dom
+     * and will not call the `remove` method on the view
+     *
+     * @param {src/framework/View} view the view to unregister
+     * @private
+     */
+  unregister: function unregister(view) {
+    this.stopListening(view);
+    var viewIndex = getIndex(this, view); // viewIndex is undefined when the view is not found (may have been removed)
+    // check if it is undefined to prevent unexpected thing to happen
+    // array.splice(undefined, x) removes the first x element(s) from the array
+    // this protects us against issues when calling `remove` on a child view multiple times
+
+    if (underscore_wrapper_1["default"].isNumber(viewIndex)) {
+      this[CHILDREN].splice(viewIndex, 1);
+    }
+  },
+
+  /**
+     * Should we auto render the view upon model change. Boolean or array of field names to listen to.
+     * @type {Boolean|Array}
+     * @deprecated Instead, please use modelEvents
+     * @example
+     * modelEvents: {
+     *   change:name: 'render'
+     * }
+     */
+  autoRender: false,
+
+  /**
+     *
+     * When the template is an underscore template, the render method will pass the options has to the template
+     * And the associated model, if exists, when it will prefer the model over the options in case of a conflict.
+     * {@link #render View.render}
+     * @type {(String|Function)}
+     * @example
+     * var View = View.extend({
+     *   template: '<p class="name">{{name}}</p>'
+     * };
+     */
+  template: null,
+
+  /**
+     * A list of child view definitions to be passed to {@link #add this.add()}.
+     * Note: these definitions will be added **before** the {@link #constructor initiliaze} method invokes.
+     * @type {(Array|Function)}
+     * @example
+     * var Container = View.extend({
+     *    template: '<p class="content"></p>',
+     *    children: [
+     *      [ContentView, '.content'],
+     *      [OtherContentView, '.content'],
+     *      OtherView
+     *    ]
+     *  })
+     *
+     * var Container = View.extend({
+     *    template: '<dov class="form-wrap"></div>',
+     *    children: function () {
+     *      return [
+     *        [FormView, '.form-wrap', {options: {model: this.optiosn.otherModel}}]
+     *      ]
+     *    }
+     *  })
+     */
+  children: [],
+
+  /**
+     * Add a child view to the container.
+     * If the container is already rendered, will also render the view  and append it to the DOM.
+     * Otherwise will render and append once the container is rendered.
+     *
+     * *We believe that for the sake of encapsulation, a view should control its own chilren, so we treat this method as
+     * protected and even though technically you can call `view.add` externally we strongly discourage it.*
+     *
+     * @param {(src/framework/View|String)} view A class (or an instance which is discouraged) of a View - or an HTML
+     * string/template
+     * @param {String} [selector] selector in the view's template on which the view will be added to
+     * @param {Object} [options]
+     * @param {Boolean} [options.bubble=false] Bubble (proxy) events from this view up the chain
+     * @param {Boolean} [options.prepend=false] Prepend the view instend of appending
+     * @param {String} [options.selector] Selector in the view's template on which the view will be added to
+     * @param {Object} [options.options] Extra options to pass to the child constructor
+     * @protected
+     * @returns {src/framework/View} - The instance of itself for the sake of chaining
+     * @example
+     * var Container = View.extend({
+     *
+     *   template: [
+     *     '<h1></h1>',
+     *     '<section></section>',
+     *   ].join(''),
+     *
+     *   initalize: function () {
+     *
+     *     this.add(TitleView, 'h1'); // will be added to <h1>
+     *
+     *     this.add(ContentView1, 'section'); // will be added to <section>
+     *
+     *     this.add(ContentView2, 'section', {prepend: true}); // will be add into <section> **before** ContentView1
+     *
+     *     this.add(OtherView, {
+     *       options: {
+     *         model: new Model()
+     *       }
+     *     }); // will be added **after** the <section> element
+     *
+     *     this.add('<p class="name">some html</p>'); //=> "<p class="name">some html</p>"
+     *     this.add('<p class="name">{{name}}</p>'); //=> "<p class="name">John Doe</p>"
+     *     this.add('{{name}}') //=> "<div>John Doe</div>"
+     *     this.add('<span>{{name}}</span> w00t') //=> "<div><span>John Doe</span> w00t</div>"
+     *   }
+     *
+     * });
+     *
+     * var container - new View({name: 'John Doe'});
+     */
+  add: function add(view, selector, bubble, prepend, extraOptions) {
+    /* eslint max-statements: [2, 29], complexity: [2, 12] */
+    var options = {},
+        args = underscore_wrapper_1["default"].toArray(arguments); // This will throw if a compiled template function is passed accidentally
+
+    if (underscore_wrapper_1["default"].isFunction(view) && (!view.prototype || !view.prototype.render)) {
+      throw new Error('Type passed to add() is not a View');
+    }
+
+    if (underscore_wrapper_1["default"].isObject(selector)) {
+      options = selector;
+      selector = options.selector;
+      bubble = options.bubble;
+      prepend = options.prepend;
+      extraOptions = options.options;
+    } else if (underscore_wrapper_1["default"].isObject(bubble)) {
+      options = bubble;
+      bubble = options.bubble;
+      prepend = options.prepend;
+      extraOptions = options.options;
+    } // TODO: This will be deprecated at some point. Views should use precompiled templates
+
+
+    if (underscore_wrapper_1["default"].isString(view)) {
+      view = function (template) {
+        return View.extend({
+          constructor: function constructor() {
+            try {
+              var $el = backbone_1["default"].$(template);
+
+              if ($el.length != 1) {
+                throw 'invalid Element';
+              }
+
+              var unescapingRexExp = /&(\w+|#x\d+);/g;
+              var elementUnescapedOuterHTMLLength = $el.prop('outerHTML').replace(unescapingRexExp, ' ').length;
+              var templateUnescapedLength = template.replace(unescapingRexExp, ' ').length;
+
+              if (elementUnescapedOuterHTMLLength !== templateUnescapedLength) {
+                throw 'invalid Element';
+              }
+
+              this.template = $el.html(); // Template string will be compiled by handlebars
+
+              this.el = $el.empty()[0];
+            } catch (e) {
+              // not a valid html tag.
+              this.template = template;
+            }
+
+            View.apply(this, arguments);
+          }
+        });
+      }(view);
+    }
+
+    if (view.prototype && view.prototype instanceof View) {
+      /* eslint new-cap: 0 */
+      var viewOptions = underscore_wrapper_1["default"].omit(underscore_wrapper_1["default"].extend({}, this.options, extraOptions), 'el');
+      args[0] = new view(viewOptions);
+      return this.add.apply(this, args);
+    } // prevent dups
+
+
+    if (underscore_wrapper_1["default"].isNumber(getIndex(this, view))) {
+      throw new Error('Duplicate child');
+    }
+
+    view[PARENT] = this; // make the view responsible for adding itself to the parent:
+    // * register the selector in the closure
+    // * register a reference the parent in the closure
+
+    view[ADD_TO_CONTAINER] = function (selector) {
+      return function () {
+        if (selector && view[PARENT].$(selector).length != 1) {
+          throw new Error('Invalid selector: ' + selector);
+        }
+
+        var $el = selector ? this[PARENT].$(selector) : this[PARENT].$el;
+        this.render(); // we need to delegate events in case
+        // the view was added and removed before
+
+        this.delegateEvents(); // this[PARENT].at(index).$el.before(this.el);
+
+        prepend ? $el.prepend(this.el) : $el.append(this.el);
+      };
+    }.call(view, selector); // if flag to bubble events is set
+    // proxy all child view events
+
+
+    if (bubble) {
+      this.listenTo(view, 'all', function () {
+        this.trigger.apply(this, arguments);
+      });
+    } // add to the dom if `render` has been called
+
+
+    if (this.rendered()) {
+      view[ADD_TO_CONTAINER]();
+    } // add view to child views collection
+
+
+    this[CHILDREN].push(view);
+    return this;
+  },
+
+  /**
+     * Remove all children from container
+     */
+  removeChildren: function removeChildren() {
+    this.each(function (view) {
+      view.remove();
+    });
+    return this;
+  },
+
+  /**
+     *  Removes a view from the DOM, and calls stopListening to remove any bound events that the view has listenTo'd.
+     *  Also removes all childern of the view if any, and removes itself from its parent view(s)
+     */
+  remove: function remove() {
+    this.removeChildren();
+
+    if (this[PARENT]) {
+      this[PARENT].unregister(this);
+    }
+
+    return backbone_1["default"].View.prototype.remove.apply(this, arguments);
+  },
+
+  /**
+     * Compile the template to function you can apply tokens on on render time.
+     * Uses the underscore tempalting engine by default
+     * @protected
+     * @param  {String} template
+     * @return {Function} a compiled template
+     */
+  // TODO: This will be deprecated at some point. Views should use precompiled templates
+  compileTemplate: function compileTemplate(template) {
+    /* eslint  @okta/okta-ui/no-specific-methods: 0*/
+    return underscore_wrapper_1["default"].template(template);
+  },
+
+  /**
+     * Render a template with `this.model` and `this.options` as parameters
+     * preferring the model over the options.
+     *
+     * @param  {(String|Function)} template The template to build
+     * @return {String} An HTML string
+     * @protected
+     */
+  renderTemplate: function renderTemplate(template) {
+    if (underscore_wrapper_1["default"].isString(template)) {
+      // TODO: This will be deprecated at some point. Views should use precompiled templates
+      template = this.compileTemplate(template);
+    }
+
+    if (underscore_wrapper_1["default"].isFunction(template)) {
+      return template(this.getTemplateData());
+    }
+  },
+
+  /**
+     * The data hash passed to the compiled template
+     * @return {Object}
+     * @protected
+     */
+  getTemplateData: function getTemplateData() {
+    var modelData = this.model && this.model.toJSON({
+      verbose: true
+    }) || {};
+    var options = underscore_wrapper_1["default"].omit(this.options, ['state', 'settings', 'model', 'collection']);
+    return underscore_wrapper_1["default"].defaults({}, modelData, options);
+  },
+
+  /**
+     * Renders the template to `$el` and append all children in order
+     * {@link #template View.template}
+     */
+  render: function render() {
+    this.preRender();
+    doRender(this);
+    this.postRender();
+    return this;
+  },
+
+  /**
+     * Pre render routine. Will be called right *before* the logic in {@link #render} is executed
+     * @method
+     */
+  preRender: noop,
+
+  /**
+     * Post render routine. Will be called right *after* the logic in {@link #render} is executed
+     * @method
+     */
+  postRender: noop,
+
+  /**
+     * Was this instance rendered
+     */
+  rendered: function rendered() {
+    return this[RENDERED];
+  },
+
+  /**
+     * Get all direct child views.
+     * @returns {src/framework/View[]}
+     * @example
+     * var container = View.extend({
+     *   children: [View1, View2]
+     * }).render();
+     * container.getChildren() //=> [view1, view2];
+     */
+  getChildren: function getChildren() {
+    return this.toArray();
+  },
+
+  /**
+     * Get a child by index
+     * @param {number} index
+     * @returns {src/framework/View} The child view
+     */
+  at: function at(index) {
+    return this.getChildren()[index];
+  },
+
+  /**
+     * Invokes a method on all children down the tree
+     *
+     * @param {String} method The method to invoke
+     */
+  invoke: function invoke(methodName) {
+    var args = underscore_wrapper_1["default"].toArray(arguments);
+    this.each(function (child) {
+      // if child has children, bubble down the tree
+      if (child.size()) {
+        child.invoke.apply(child, args);
+      } // run the function on the child
+
+
+      if (underscore_wrapper_1["default"].isFunction(child[methodName])) {
+        child[methodName].apply(child, args.slice(1));
+      }
+    });
+    return this;
+  }
+}); // Code borrowed from Backbone.js source
+// Underscore methods that we want to implement on the Container.
+
+var methods = ['each', 'map', 'reduce', 'reduceRight', 'find', 'filter', 'reject', 'every', 'some', 'contains', 'toArray', 'size', 'first', 'initial', 'rest', 'last', 'without', 'indexOf', 'shuffle', 'lastIndexOf', 'isEmpty', 'chain', 'where', 'findWhere'];
+underscore_wrapper_1["default"].each(methods, function (method) {
+  View.prototype[method] = function () {
+    var args = underscore_wrapper_1["default"].toArray(arguments);
+    args.unshift(underscore_wrapper_1["default"].toArray(this[CHILDREN]));
+    return underscore_wrapper_1["default"][method].apply(underscore_wrapper_1["default"], args);
+  };
+}, void 0);
+/**
+   * See [_.each](http://underscorejs.org/#each)
+   * @name each
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} iterator
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.map](http://underscorejs.org/#map)
+   * @name map
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} iterator
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.reduce](http://underscorejs.org/#reduce)
+   * @name reduce
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} iterator
+   * @param {Mixed} memo
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.reduceRight](http://underscorejs.org/#reduceRight)
+   * @name reduceRight
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} iterator
+   * @param {Mixed} memo
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.find](http://underscorejs.org/#find)
+   * @name find
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} predicate
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.filter](http://underscorejs.org/#filter)
+   * @name filter
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} predicate
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.reject](http://underscorejs.org/#reject)
+   * @name reject
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} predicate
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.every](http://underscorejs.org/#every)
+   * @name every
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} [predicate]
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.some](http://underscorejs.org/#some)
+   * @name some
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Function} [predicate]
+   * @param {Object} [context]
+   */
+
+/**
+   * See [_.contains](http://underscorejs.org/#contains)
+   * @name contains
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Mixed} value
+   */
+
+/**
+   * See [_.toArray](http://underscorejs.org/#toArray)
+   * @name toArray
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.size](http://underscorejs.org/#size)
+   * @name size
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.first](http://underscorejs.org/#first)
+   * @name first
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Number} [n]
+   */
+
+/**
+   * See [_.initial](http://underscorejs.org/#initial)
+   * @name initial
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Number} [n]
+   */
+
+/**
+   * See [_.last](http://underscorejs.org/#last)
+   * @name last
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Number} [n]
+   */
+
+/**
+   * See [_.rest](http://underscorejs.org/#rest)
+   * @name rest
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Number} [index]
+   */
+
+/**
+   * See [_.without](http://underscorejs.org/#without)
+   * @name without
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.indexOf](http://underscorejs.org/#indexOf)
+   * @name indexOf
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Mixed} value
+   * @param {Boolean} [isSorted]
+   */
+
+/**
+   * See [_.shuffle](http://underscorejs.org/#shuffle)
+   * @name shuffle
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.shuffle](http://underscorejs.org/#lastIndexOf)
+   * @name lastIndexOf
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Mixed} value
+   * @param {Number} [fromIndex]
+   */
+
+/**
+   * See [_.isEmpty](http://underscorejs.org/#isEmpty)
+   * @name isEmpty
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.chain](http://underscorejs.org/#chain)
+   * @name chain
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   */
+
+/**
+   * See [_.where](http://underscorejs.org/#where)
+   * @name where
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Object} properties
+   */
+
+/**
+   * See [_.findWhere](http://underscorejs.org/#findWhere)
+   * @name findWhere
+   * @memberof src/framework/View
+   * @method
+   * @instance
+   * @param {Object} properties
+   */
+
+/**
+ * It's used for distinguishing the ambiguity from _.isFunction()
+ * which returns True for both a JavaScript Class constructor function
+ * and normal function. With this flag, we can tell a function is actually
+ * a View Class.
+ * This flag is added in order to support the type of a parameter can be
+ * either a Class or pure function that returns a Class.
+ */
+
+View.isCourageView = true;
+exports.default = View;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseCollection.ts":
+/*!************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/models/BaseCollection.ts ***!
+  \************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Collection_1 = __importDefault(__webpack_require__(/*! ../framework/Collection */ "../../../../../../okta/okta-ui/packages/courage/src/framework/Collection.ts"));
+/**
+ * Wrapper around the more generic {@link src/framework/Collection} that
+ * contains Okta-specific logic.
+ * @class module:Okta.Collection
+ * @extends src/framework/Collection
+ */
+
+
+exports.default = Collection_1["default"].extend(
+/** @lends module:Okta.Collection.prototype */
+{
+  /**
+   * Is the end point using the legacy "secureJSON" format
+   * @type {Function|Boolean}
+   */
+  secureJSON: false,
+  constructor: function constructor() {
+    Collection_1["default"].apply(this, arguments);
+
+    if (underscore_wrapper_1["default"].result(this, 'secureJSON')) {
+      this.sync = underscore_wrapper_1["default"].wrap(this.sync, function (sync, method, collection, options) {
+        return sync.call(this, method, collection, underscore_wrapper_1["default"].extend({
+          dataType: 'secureJSON'
+        }, options));
+      });
+    }
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseModel.ts":
+/*!*******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/models/BaseModel.ts ***!
+  \*******************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+function _typeof(obj) { "@babel/helpers - typeof"; if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Model_1 = __importDefault(__webpack_require__(/*! ./Model */ "../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts"));
+
+var hasProps = function hasProps(model) {
+  var local = underscore_wrapper_1["default"].omit(model.local, underscore_wrapper_1["default"].keys(model._builtInLocalProps));
+  return underscore_wrapper_1["default"].size(model.props) + underscore_wrapper_1["default"].size(local) > 0;
+};
+/**
+ * @class module:Okta.BaseModel
+ * @extends module:Okta.Model
+ * @deprecated Use {@link module:Okta.Model|Okta.Model} instead
+ * @example
+ * var Model = BaseModel.extend({
+ *   defaults: {
+ *     name: BaseModel.ComputedProperty(['fname', 'lname'], function (fname, lname) {
+ *       return fname + ' ' + lname;
+ *     })
+ *   }
+ * });
+ * var model = new Model({fname: 'Joe', lname: 'Doe'});
+ * model.get('name'); //=> "Joe Doe"
+ * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
+ *
+ * model.set('__private__', 'private property');
+ * model.get('__private__'); //=> "private property"
+ * model.toJSON(); //=> {fname: 'Joe', lname: 'Doe'}
+ */
+
+
+var BaseModelBaseModel = Model_1["default"].extend(
+/** @lends module:Okta.BaseModel.prototype */
+{
+  /**
+   * @type {Boolean}
+   */
+  flat: false,
+  constructor: function constructor() {
+    Model_1["default"].apply(this, arguments);
+    this.on('sync', this._setSynced);
+  },
+  allows: function allows() {
+    if (hasProps(this)) {
+      return Model_1["default"].prototype.allows.apply(this, arguments);
+    } else {
+      return true;
+    }
+  },
+  // bw compatibility support for old computed properties
+  set: function set(key, val) {
+    var attrs;
+
+    if (_typeof(key) === 'object') {
+      attrs = key;
+    } else {
+      (attrs = {})[key] = val;
+    } // computed properties
+
+
+    (0, underscore_wrapper_1["default"])(attrs).each(function (fn, attr) {
+      if (!fn || !underscore_wrapper_1["default"].isArray(fn.__attributes)) {
+        return;
+      }
+
+      this.on('change:' + fn.__attributes.join(' change:'), function () {
+        var val = this.get(attr);
+
+        if (val !== this['__schema__'].computedProperties[attr]) {
+          this['__schema__'].computedProperties[attr] = val;
+          this.trigger('change:' + attr, val);
+        }
+      }, this);
+    }, this);
+    return Model_1["default"].prototype.set.apply(this, arguments);
+  },
+
+  /**
+   * Get the current value of an attribute from the model. For example: `note.get("title")`
+   *
+   * See [Model.get](http://backbonejs.org/#Model-get)
+   * @param {String} attribute
+   * @return {Mixed} The value of the model attribute
+   */
+  get: function get() {
+    var value = Model_1["default"].prototype.get.apply(this, arguments);
+
+    if (underscore_wrapper_1["default"].isFunction(value)) {
+      return value.apply(this, underscore_wrapper_1["default"].map(value.__attributes || [], this.get, this));
+    }
+
+    return value;
+  },
+
+  /**
+   * Return a shallow copy of the model's attributes for JSON stringification.
+   * This can be used for persistence, serialization, or for augmentation before being sent to the server.
+   * The name of this method is a bit confusing, as it doesn't actually return a JSON string —
+   *  but I'm afraid that it's the way that the JavaScript API for JSON.stringify works.
+   *
+   * ```javascript
+   * var artist = new Model({
+   *   firstName: "Wassily",
+   *   lastName: "Kandinsky"
+   * });
+   *
+   * artist.set({birthday: "December 16, 1866"});
+   * alert(JSON.stringify(artist)); // {"firstName":"Wassily","lastName":"Kandinsky","birthday":"December 16, 1866"}
+   * ```
+   * See [Model.toJSON](http://backbonejs.org/#Model-toJSON)
+   * @param  {Object} options
+   * @return {Object}
+   */
+  toJSON: function toJSON(options) {
+    options || (options = {});
+    var res = Model_1["default"].prototype.toJSON.apply(this, arguments); // cleanup computed properties
+
+    (0, underscore_wrapper_1["default"])(res).each(function (value, key) {
+      if (typeof value === 'function') {
+        if (options.verbose) {
+          res[key] = this.get(key);
+        } else {
+          delete res[key];
+        }
+      }
+    }, this); // cleanup private properties
+
+    if (!options.verbose) {
+      (0, underscore_wrapper_1["default"])(res).each(function (value, key) {
+        if (/^__\w+__$/.test(key)) {
+          delete res[key];
+        }
+      });
+    }
+
+    return res;
+  },
+  sanitizeAttributes: function sanitizeAttributes(attributes) {
+    var attrs = {};
+    underscore_wrapper_1["default"].each(attributes, function (value, key) {
+      if (!underscore_wrapper_1["default"].isFunction(value)) {
+        attrs[key] = value;
+      }
+    });
+    return attrs;
+  },
+  reset: function reset(options) {
+    this.clear(options);
+    this.set(this.sanitizeAttributes(this.defaults), options);
+  },
+  clear: function clear(options) {
+    var attrs = {};
+    underscore_wrapper_1["default"].each(this.sanitizeAttributes(this.attributes), function (value, key) {
+      attrs[key] = void 0;
+    });
+    return this.set(attrs, underscore_wrapper_1["default"].extend({}, options, {
+      unset: true
+    }));
+  },
+
+  /**
+   * @private
+   */
+  _setSynced: function _setSynced(newModel) {
+    this._syncedData = newModel && underscore_wrapper_1["default"].isFunction(newModel.toJSON) ? newModel.toJSON() : {};
+  },
+
+  /**
+   * @private
+   */
+  _getSynced: function _getSynced() {
+    return this._syncedData;
+  },
+  isSynced: function isSynced() {
+    return underscore_wrapper_1["default"].isEqual(this._getSynced(), this.toJSON());
+  }
+},
+/** @lends module:Okta.BaseModel.prototype */
+{
+  /**
+   * @static
+   *
+   * Example:
+   *
+   * ```javascript
+   * var Model = BaseModel.extend({
+   *   defaults: {
+   *     name: BaseModel.ComputedProperty(['fname', 'lname'], function (fname, lname) {
+   *       return fname + ' ' + lname;
+   *     })
+   *   }
+   * });
+   * var model = new Model({fname: 'Joe', lname: 'Doe'});
+   * model.get('name'); // Joe Doe
+   * model.toJSON(); // {fname: 'Joe', lname: 'Doe'}
+   * ```
+   *
+   * @param {Array} attributes - an array of the attribute names this method depends on
+   * @param {Function} callback the function that computes the value of the property
+   *
+   * @deprecated Use {@link #derived} instead
+   */
+  ComputedProperty: function ComputedProperty() {
+    var args = underscore_wrapper_1["default"].toArray(arguments);
+    var fn = args.pop();
+    fn.__attributes = args.pop();
+    return fn;
+  }
+});
+exports.default = BaseModelBaseModel;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseSchema.ts":
+/*!********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/models/BaseSchema.ts ***!
+  \********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var BaseCollection_1 = __importDefault(__webpack_require__(/*! ./BaseCollection */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseCollection.ts"));
+
+var BaseModel_1 = __importDefault(__webpack_require__(/*! ./BaseModel */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseModel.ts"));
+
+var SchemaProperty_1 = __importDefault(__webpack_require__(/*! ./SchemaProperty */ "../../../../../../okta/okta-ui/packages/courage/src/models/SchemaProperty.ts"));
+
+var parseProperties = function parseProperties(resp) {
+  var schemaMeta = underscore_wrapper_1["default"].pick(resp, 'id', 'name', 'displayName');
+  var properties = underscore_wrapper_1["default"].map(resp.schema.properties, function (property, name) {
+    return underscore_wrapper_1["default"].extend({
+      name: name
+    }, property);
+  });
+  underscore_wrapper_1["default"].each(properties, function (property) {
+    property['__schemaMeta__'] = schemaMeta;
+
+    if (property.__metadata) {
+      property['__metadata__'] = property.__metadata;
+      delete property.__metadata;
+    }
+  });
+  return properties;
+};
+
+var BaseSchemaSchema = BaseModel_1["default"].extend({
+  defaults: {
+    id: undefined,
+    displayName: undefined,
+    name: undefined
+  },
+  constructor: function constructor() {
+    this.properties = new SchemaProperty_1["default"].Collection();
+    BaseModel_1["default"].apply(this, arguments);
+  },
+  getProperties: function getProperties() {
+    return this.properties;
+  },
+  clone: function clone() {
+    var model = BaseModel_1["default"].prototype.clone.apply(this, arguments);
+    model.getProperties().set(this.getProperties().toJSON({
+      verbose: true
+    }));
+    return model;
+  },
+  parse: function parse(resp) {
+    var properties = parseProperties(resp);
+    this.properties.set(properties, {
+      parse: true
+    });
+    return underscore_wrapper_1["default"].omit(resp, 'schema');
+  },
+  trimProperty: function trimProperty(property) {
+    return underscore_wrapper_1["default"].omit(property, 'name');
+  },
+  toJSON: function toJSON() {
+    var json = BaseModel_1["default"].prototype.toJSON.apply(this, arguments);
+    json.schema = {
+      properties: {}
+    };
+    this.getProperties().each(function (model) {
+      var property = model.toJSON();
+      json.schema.properties[property.name] = this.trimProperty(property);
+    }, this);
+    return json;
+  },
+  save: function save() {
+    this.getProperties().each(function (model) {
+      model.cleanup();
+    });
+    return BaseModel_1["default"].prototype.save.apply(this, arguments);
+  }
+});
+var BaseSchemaSchemas = BaseCollection_1["default"].extend({
+  model: BaseSchemaSchema
+});
+exports.default = {
+  parseProperties: parseProperties,
+  Model: BaseSchemaSchema,
+  Collection: BaseSchemaSchemas
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts":
+/*!***************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts ***!
+  \***************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Model_1 = __importDefault(__webpack_require__(/*! ../framework/Model */ "../../../../../../okta/okta-ui/packages/courage/src/framework/Model.ts"));
+/**
+ * Wrapper around the more generic {@link src/framework/Model} that
+ * contains Okta-specific logic.
+ * @class module:Okta.Model
+ * @extends src/framework/Model
+ */
+
+
+exports.default = Model_1["default"].extend(
+/** @lends module:Okta.Model.prototype */
+{
+  /**
+   * Is the end point using the legacy "secureJSON" format
+   * @type {Function|Boolean}
+   */
+  secureJSON: false,
+  _builtInLocalProps: {
+    __edit__: 'boolean',
+    __pending__: 'boolean'
+  },
+  constructor: function constructor() {
+    this.local = underscore_wrapper_1["default"].defaults({}, underscore_wrapper_1["default"].result(this, 'local'), this._builtInLocalProps);
+    Model_1["default"].apply(this, arguments);
+
+    if (underscore_wrapper_1["default"].result(this, 'secureJSON')) {
+      this.sync = underscore_wrapper_1["default"].wrap(this.sync, function (sync, method, model, options) {
+        return sync.call(this, method, model, underscore_wrapper_1["default"].extend({
+          dataType: 'secureJSON'
+        }, options));
+      });
+    }
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/models/SchemaProperty.ts":
+/*!************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/models/SchemaProperty.ts ***!
+  \************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint max-statements: [2, 16], complexity: [2, 8], max-params: [2, 8] */
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../util/underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var BaseCollection_1 = __importDefault(__webpack_require__(/*! ./BaseCollection */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseCollection.ts"));
+
+var BaseModel_1 = __importDefault(__webpack_require__(/*! ./BaseModel */ "../../../../../../okta/okta-ui/packages/courage/src/models/BaseModel.ts"));
+
+var Logger_1 = __importDefault(__webpack_require__(/*! ../util/Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
+
+var SchemaUtil_1 = __importDefault(__webpack_require__(/*! ../util/SchemaUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts"));
+
+var StringUtil_1 = __importDefault(__webpack_require__(/*! ../util/StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
+
+var EnumTypeHelper_1 = __importDefault(__webpack_require__(/*! ../views/forms/helpers/EnumTypeHelper */ "../../../../../../okta/okta-ui/packages/courage/src/views/forms/helpers/EnumTypeHelper.js"));
+
+var loc = StringUtil_1["default"].localize;
+var STRING = SchemaUtil_1["default"].STRING;
+var NUMBER = SchemaUtil_1["default"].NUMBER;
+var INTEGER = SchemaUtil_1["default"].INTEGER;
+var OBJECT = SchemaUtil_1["default"].OBJECT;
+
+var getArrayTypeName = function getArrayTypeName(type, elementType) {
+  return type + 'of' + elementType;
+};
+
+var SchemaPropertySubSchema = BaseModel_1["default"].extend({
+  defaults: {
+    description: undefined,
+    minLength: undefined,
+    maxLength: undefined,
+    format: undefined
+  },
+  parse: function parse(resp) {
+    if (underscore_wrapper_1["default"].isString(resp.format)) {
+      var matcher = /^\/(.+)\/$/.exec(resp.format);
+
+      if (matcher) {
+        resp.format = matcher[1];
+      }
+    }
+
+    return resp;
+  }
+});
+var SchemaPropertySubSchemaCollection = BaseCollection_1["default"].extend({
+  model: SchemaPropertySubSchema
+});
+var SchemaPropertySubSchemaAllOfCollection = SchemaPropertySubSchemaCollection.extend({
+  _type: 'allOf'
+});
+var SchemaPropertySubSchemaOneOfCollection = SchemaPropertySubSchemaCollection.extend({
+  _type: 'oneOf'
+});
+var SchemaPropertySubSchemaNoneOfCollection = SchemaPropertySubSchemaCollection.extend({
+  _type: 'noneOf'
+});
+var constraintTypeErrorMessages = {
+  string: loc('schema.validation.field.value.must.string', 'courage'),
+  number: loc('schema.validation.field.value.must.number', 'courage'),
+  integer: loc('schema.validation.field.value.must.integer', 'courage'),
+  object: loc('schema.validation.field.value.must.object', 'courage')
+};
+var loginFormatNonePattern = '.+';
+var escapedLoginCharsRe = /[^a-zA-Z0-9-]/;
+var constraintHandlers = {
+  between: '_checkBetweenConstraints',
+  greaterThan: '_checkGreaterThanConstraint',
+  lessThan: '_checkLessThanConstraint',
+  equals: '_checkEqualsConstraint'
+};
+var SchemaPropertySchemaProperty = BaseModel_1["default"].extend({
+  idAttribute: 'name',
+  local: {
+    __oneOf__: {
+      type: 'array',
+      minItems: 1
+    }
+  },
+  defaults: {
+    // OKTA-28445, set empty string by default as the key for each property when syncing with server
+    // so that server can respond with error when a name is not provided
+    name: '',
+    title: undefined,
+    type: undefined,
+    description: undefined,
+    required: false,
+    format: undefined,
+    // choose disable option be default.
+    union: undefined,
+    subSchemas: undefined,
+    settings: {
+      permissions: {
+        SELF: SchemaUtil_1["default"].PERMISSION.READ_ONLY
+      }
+    },
+    unique: undefined,
+    __metadata__: undefined,
+    __isSensitive__: BaseModel_1["default"].ComputedProperty(['settings'], function (settings) {
+      return !!(settings && settings.sensitive);
+    }),
+    __unique__: false,
+    __isUniqueValidated__: BaseModel_1["default"].ComputedProperty(['unique'], function (unique) {
+      return unique === SchemaUtil_1["default"].UNIQUENESS.UNIQUE_VALIDATED;
+    }),
+    __isPendingUniqueness__: BaseModel_1["default"].ComputedProperty(['unique'], function (unique) {
+      return unique === SchemaUtil_1["default"].UNIQUENESS.PENDING_UNIQUENESS;
+    }),
+    __isUniqueness__: BaseModel_1["default"].ComputedProperty(['__isUniqueValidated__', '__isPendingUniqueness__'], function (isValidated, isPending) {
+      return isValidated || isPending;
+    }),
+    __canBeSensitive__: BaseModel_1["default"].ComputedProperty(['__metadata__'], function (metadata) {
+      return !!(metadata && metadata.sensitivizable);
+    }),
+    __userPermission__: SchemaUtil_1["default"].PERMISSION.READ_ONLY,
+    __displayType__: undefined,
+    __displayTypeLabel__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return SchemaUtil_1["default"].DATATYPE[displayType] || displayType;
+    }),
+    __supportsMinMax__: false,
+    // use the private naming convention for these computed properties,
+    // to deal with the complexity in cloning schema with properties (toJSON({verbose: true})),
+    // to make sure these attributes are being excluded from api request
+    __isReadOnly__: BaseModel_1["default"].ComputedProperty(['mutability'], function (mutability) {
+      return mutability === SchemaUtil_1["default"].MUTABILITY.READONLY;
+    }),
+    __isWriteOnly__: BaseModel_1["default"].ComputedProperty(['mutability'], function (mutability) {
+      return mutability === SchemaUtil_1["default"].MUTABILITY.WRITEONLY;
+    }),
+    __displayScope__: undefined,
+    __isScopeSelf__: BaseModel_1["default"].ComputedProperty(['scope'], function (scope) {
+      return scope === SchemaUtil_1["default"].SCOPE.SELF;
+    }),
+    __isNoneScopeArrayType__: BaseModel_1["default"].ComputedProperty(['__isScopeSelf__', '__displayType__'], function (isScopeSelf, displayType) {
+      return !isScopeSelf && SchemaUtil_1["default"].isArrayDataType(displayType);
+    }),
+    __isImported__: BaseModel_1["default"].ComputedProperty(['externalName'], function (externalName) {
+      return !!externalName;
+    }),
+    __isFromBaseSchema__: BaseModel_1["default"].ComputedProperty(['__schemaMeta__'], function (schemaMeta) {
+      return schemaMeta && schemaMeta.name === 'base';
+    }),
+    // Only UI can turn on __enumDefined__ and reprocess the enum/oneOf value; otherwise,
+    // it should leave existing value untouch
+    __enumDefined__: false,
+    __supportEnum__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return underscore_wrapper_1["default"].contains(SchemaUtil_1["default"].SUPPORTENUM, displayType);
+    }),
+    __isNumberTypeEnum__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return underscore_wrapper_1["default"].contains([SchemaUtil_1["default"].NUMBER, SchemaUtil_1["default"].ARRAYDISPLAYTYPE.arrayofnumber], displayType);
+    }),
+    __isIntegerTypeEnum__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return underscore_wrapper_1["default"].contains([SchemaUtil_1["default"].INTEGER, SchemaUtil_1["default"].ARRAYDISPLAYTYPE.arrayofinteger], displayType);
+    }),
+    __isObjectTypeEnum__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return underscore_wrapper_1["default"].contains([SchemaUtil_1["default"].OBJECT, SchemaUtil_1["default"].ARRAYDISPLAYTYPE.arrayofobject], displayType);
+    }),
+    __isStringTypeEnum__: BaseModel_1["default"].ComputedProperty(['__displayType__'], function (displayType) {
+      return underscore_wrapper_1["default"].contains([SchemaUtil_1["default"].STRING, SchemaUtil_1["default"].ARRAYDISPLAYTYPE.arrayofstring], displayType);
+    }),
+    __enumConstraintType__: BaseModel_1["default"].ComputedProperty(['__isStringTypeEnum__', '__isNumberTypeEnum__', '__isIntegerTypeEnum__', '__isObjectTypeEnum__'], function (isStringType, isNumberType, isIntegerType, isObjectType) {
+      if (isStringType) {
+        return STRING;
+      }
+
+      if (isNumberType) {
+        return NUMBER;
+      }
+
+      if (isIntegerType) {
+        return INTEGER;
+      }
+
+      if (isObjectType) {
+        return OBJECT;
+      }
+    }),
+    __isEnumDefinedAndSupported__: BaseModel_1["default"].ComputedProperty(['__enumDefined__', '__supportEnum__'], function (enumDefined, supportEnum) {
+      return enumDefined && supportEnum;
+    }),
+    __isLoginOfBaseSchema__: BaseModel_1["default"].ComputedProperty(['__isFromBaseSchema__', 'name'], function (isFromBaseSchema, name) {
+      return isFromBaseSchema && name === 'login';
+    }),
+    __isLoginFormatRestrictionToEmail__: BaseModel_1["default"].ComputedProperty(['__loginFormatRestriction__'], function (loginFormatRestriction) {
+      return loginFormatRestriction === SchemaUtil_1["default"].LOGINPATTERNFORMAT.EMAIL;
+    })
+  },
+  initialize: function initialize() {
+    BaseModel_1["default"].prototype.initialize.apply(this, arguments);
+    this.listenTo(this, 'change:__displayType__', this._updateTypeFormatConstraints);
+    this.listenTo(this, 'change:type change:format change:items', this._updateDisplayType);
+    this.listenTo(this, 'change:__minVal__ change:__maxVal__', this._updateMinMax);
+    this.listenTo(this, 'change:__equals__', this._convertEqualsToMinMax);
+    this.listenTo(this, 'change:__constraint__', this._setConstraintText);
+
+    this._setConstraintText();
+
+    this._setLoginPattern();
+  },
+  parse: function parse(resp) {
+    /* eslint complexity: [2, 9] */
+    resp = underscore_wrapper_1["default"].clone(resp);
+
+    if (resp.type === 'object' && resp.extendedType === 'image') {
+      resp.type = 'image';
+    }
+
+    resp['__displayType__'] = SchemaUtil_1["default"].getDisplayType(resp.type, resp.format, resp.items ? resp.items.format ? resp.items.format : resp.items.type : undefined);
+
+    this._setRangeConstraints(resp);
+
+    resp['__supportsMinMax__'] = SchemaUtil_1["default"].SUPPORTSMINMAX.indexOf(resp['__displayType__']) !== -1;
+    resp['__displayScope__'] = SchemaUtil_1["default"].DISPLAYSCOPE[resp.scope] || SchemaUtil_1["default"].DISPLAYSCOPE.NA;
+
+    if (resp.settings && resp.settings.permissions && resp.settings.permissions.SELF) {
+      resp['__userPermission__'] = resp.settings.permissions.SELF;
+    }
+
+    this._setMasterOverride(resp);
+
+    this._setSubSchemas(resp);
+
+    this._setUniqueness(resp);
+
+    return resp;
+  },
+  validate: function validate() {
+    var enumValidationError = this._validateEnumOneOf();
+
+    if (enumValidationError) {
+      return enumValidationError;
+    }
+
+    if (!this.get('__supportsMinMax__') || !this.get('__constraint__')) {
+      return undefined;
+    }
+
+    var constraitType = this.get('__constraint__');
+    var constraitHandler = this[constraintHandlers[constraitType]];
+
+    if (underscore_wrapper_1["default"].isFunction(constraitHandler)) {
+      return constraitHandler.call(this);
+    } else {
+      Logger_1["default"].warn('No constraint handler found for: ' + constraitType);
+      return undefined;
+    }
+  },
+  _checkBetweenConstraints: function _checkBetweenConstraints() {
+    var minVal = this.get('__minVal__');
+    var maxVal = this.get('__maxVal__');
+
+    if (!minVal && !maxVal) {
+      return;
+    }
+
+    if (!minVal) {
+      return {
+        __minVal__: 'Min value is required'
+      };
+    }
+
+    if (!maxVal) {
+      return {
+        __maxVal__: 'Max value is required'
+      };
+    }
+
+    var val = this._checkIntegerConstraints('__minVal__', 'Min value');
+
+    if (val) {
+      return val;
+    }
+
+    val = this._checkIntegerConstraints('__maxVal__', 'Max value');
+
+    if (val) {
+      return val;
+    }
+
+    if (+minVal >= +maxVal) {
+      return {
+        __maxVal__: 'Max val must be greater than min val'
+      };
+    }
+  },
+  _checkGreaterThanConstraint: function _checkGreaterThanConstraint() {
+    var minVal = this.get('__minVal__');
+
+    if (!minVal) {
+      return;
+    }
+
+    var val = this._checkIntegerConstraints('__minVal__', 'Min value');
+
+    if (val) {
+      return val;
+    }
+  },
+  _checkLessThanConstraint: function _checkLessThanConstraint() {
+    var maxVal = this.get('__maxVal__');
+
+    if (!maxVal) {
+      return;
+    }
+
+    var val = this._checkIntegerConstraints('__maxVal__', 'Max value');
+
+    if (val) {
+      return val;
+    }
+  },
+  _checkEqualsConstraint: function _checkEqualsConstraint() {
+    var equals = this.get('__equals__');
+
+    if (!equals) {
+      return;
+    }
+
+    var val = this._checkIntegerConstraints('__equals__', 'Constraint');
+
+    if (val) {
+      return val;
+    }
+  },
+  _checkIntegerConstraints: function _checkIntegerConstraints(field, name) {
+    var val = this.get(field);
+    var error = {};
+
+    if (isNaN(val)) {
+      error[field] = name + ' must be a number';
+      return error;
+    }
+
+    if (+val < 0) {
+      error[field] = name + ' must be greater than 0';
+      return error;
+    }
+  },
+  _setMasterOverride: function _setMasterOverride(resp) {
+    if (resp.settings && resp.settings.masterOverride && resp.settings.masterOverride) {
+      var masterOverrideValue = resp.settings.masterOverride.value;
+
+      if (underscore_wrapper_1["default"].isArray(masterOverrideValue) && !underscore_wrapper_1["default"].isEmpty(masterOverrideValue)) {
+        resp['__masterOverrideType__'] = 'OVERRIDE';
+        resp['__masterOverrideValue__'] = masterOverrideValue || [];
+      } else {
+        resp['__masterOverrideType__'] = resp.settings.masterOverride.type;
+      }
+    } else {
+      resp['__masterOverrideType__'] = 'INHERIT';
+    }
+  },
+  _setRangeConstraints: function _setRangeConstraints(resp) {
+    /* eslint complexity: [2, 11] */
+    if (resp['__displayType__'] === STRING) {
+      resp['__minVal__'] = resp.minLength;
+      resp['__maxVal__'] = resp.maxLength;
+    } else if (resp['__displayType__'] === INTEGER || resp['__displayType__'] === NUMBER) {
+      resp['__minVal__'] = resp.minimum;
+      resp['__maxVal__'] = resp.maximum;
+    }
+
+    if (resp['__minVal__'] && resp['__maxVal__']) {
+      if (resp['__minVal__'] === resp['__maxVal__']) {
+        resp['__constraint__'] = 'equals';
+        resp['__equals__'] = resp['__minVal__'];
+      } else {
+        resp['__constraint__'] = 'between';
+      }
+    } else if (!resp['__minVal__'] && resp['__maxVal__']) {
+      resp['__constraint__'] = 'lessThan';
+    } else if (!resp['__maxVal__'] && resp['__minVal__']) {
+      resp['__constraint__'] = 'greaterThan';
+    }
+  },
+  _setSubSchemas: function _setSubSchemas(resp) {
+    if (resp.allOf) {
+      resp['subSchemas'] = new SchemaPropertySubSchemaAllOfCollection(resp.allOf, {
+        parse: true
+      });
+    } else if (resp.oneOf) {
+      resp['subSchemas'] = new SchemaPropertySubSchemaOneOfCollection(resp.oneOf, {
+        parse: true
+      });
+    } else if (resp.noneOf) {
+      resp['subSchemas'] = new SchemaPropertySubSchemaNoneOfCollection(resp.noneOf, {
+        parse: true
+      });
+    }
+  },
+  _setUniqueness: function _setUniqueness(resp) {
+    var unique = resp && resp.unique;
+    resp['__unique__'] = !!(unique && (unique === SchemaUtil_1["default"].UNIQUENESS.UNIQUE_VALIDATED || unique === SchemaUtil_1["default"].UNIQUENESS.PENDING_UNIQUENESS));
+  },
+  _setLoginPattern: function _setLoginPattern() {
+    if (!this.get('__isLoginOfBaseSchema__')) {
+      return;
+    }
+
+    var pattern = this.get('pattern');
+
+    if (pattern === loginFormatNonePattern) {
+      this.set('__loginFormatRestriction__', SchemaUtil_1["default"].LOGINPATTERNFORMAT.NONE);
+    } else if (pattern) {
+      this.set('__loginFormatRestriction__', SchemaUtil_1["default"].LOGINPATTERNFORMAT.CUSTOM);
+      this.set('__loginFormatRestrictionCustom__', this._extractLoginPattern(pattern));
+    } else {
+      this.set('__loginFormatRestriction__', SchemaUtil_1["default"].LOGINPATTERNFORMAT.EMAIL);
+    }
+  },
+  _updateDisplayType: function _updateDisplayType() {
+    var type = this.get('type');
+
+    if (type === STRING && this.get('format')) {
+      this.set('__displayType__', SchemaUtil_1["default"].FORMATDISPLAYTYPE[this.get('format')]);
+    } else {
+      var items = this.get('items');
+      var arraytype = items && (items.format ? items.format : items.type);
+
+      if (type && arraytype) {
+        this.set('__displayType__', SchemaUtil_1["default"].ARRAYDISPLAYTYPE[getArrayTypeName(type, arraytype)]);
+      } else {
+        this.set('__displayType__', type);
+      }
+    }
+  },
+  _validateEnumOneOf: function _validateEnumOneOf() {
+    if (!this.get('__isEnumDefinedAndSupported__')) {
+      return;
+    }
+
+    var enumOneOf = this.get('__oneOf__') || [];
+
+    if (underscore_wrapper_1["default"].isEmpty(enumOneOf)) {
+      return {
+        __oneOf__: loc('model.validation.field.blank', 'courage')
+      };
+    }
+
+    if (!this._isValidateOneOfConstraint(enumOneOf)) {
+      var constraintType = this.get('__enumConstraintType__');
+      var errorTypeMsg = constraintTypeErrorMessages[constraintType];
+      return {
+        __oneOf__: errorTypeMsg
+      };
+    }
+  },
+  _isValidateOneOfConstraint: function _isValidateOneOfConstraint(values) {
+    var constraintType = this.get('__enumConstraintType__');
+    return underscore_wrapper_1["default"].all(values, function (value) {
+      return EnumTypeHelper_1["default"].isConstraintValueMatchType(value["const"], constraintType);
+    });
+  },
+  toJSON: function toJSON() {
+    var json = BaseModel_1["default"].prototype.toJSON.apply(this, arguments);
+    json.settings = {
+      permissions: {}
+    };
+    json.settings.permissions['SELF'] = this.get('__userPermission__'); // omit "sensitive" filed will have default it value to false.
+
+    if (this.get('__isSensitive__')) {
+      json.settings.sensitive = this.get('__isSensitive__');
+    }
+
+    if (this.get('type') === 'image') {
+      json.type = 'object';
+      json.extendedType = 'image';
+    }
+
+    json = this._enumAssignment(json);
+    json = this._attributeOverrideToJson(json);
+    json = this._normalizeUnionValue(json);
+    json = this._patternAssignment(json);
+    json = this._uniquenessAssignment(json);
+    return json;
+  },
+  _attributeOverrideToJson: function _attributeOverrideToJson(json) {
+    var masterOverrideType = this.get('__masterOverrideType__');
+    var masterOverrideValue = this.get('__masterOverrideValue__');
+
+    if (masterOverrideType === 'OKTA_MASTERED') {
+      json.settings.masterOverride = {
+        type: 'OKTA_MASTERED'
+      };
+    } else if (masterOverrideType === 'OVERRIDE') {
+      json.settings.masterOverride = {
+        type: 'ORDERED_LIST',
+        value: []
+      };
+
+      if (masterOverrideValue instanceof BaseCollection_1["default"]) {
+        underscore_wrapper_1["default"].each(masterOverrideValue.toJSON(), function (overrideProfile) {
+          json.settings.masterOverride.value.push(overrideProfile.id);
+        });
+      } else if (masterOverrideValue instanceof Array) {
+        json.settings.masterOverride.value = masterOverrideValue;
+      }
+
+      if (underscore_wrapper_1["default"].isEmpty(json.settings.masterOverride.value)) {
+        delete json.settings.masterOverride;
+      }
+    }
+
+    if (masterOverrideType === 'INHERIT') {
+      delete json.settings.masterOverride;
+    }
+
+    return json;
+  },
+
+  /**
+   * Only allow set "union" value when isScopeSelf is NONE and displayType is
+   * array of (string/number/integer), otherwise reset to default.
+   *
+   * @see /universal-directory/shared/views/components/UnionGroupValuesRadio.js
+   */
+  _normalizeUnionValue: function _normalizeUnionValue(json) {
+    if (!this.get('__isNoneScopeArrayType__')) {
+      json['union'] = undefined;
+    }
+
+    return json;
+  },
+  _enumAssignment: function _enumAssignment(json) {
+    if (!this.get('__isEnumDefinedAndSupported__')) {
+      return json;
+    } // backfill empty title by constraint
+
+
+    var enumOneOf = this._getEnumOneOfWithTitleCheck();
+
+    if (this.get('type') === 'array') {
+      delete json.items["enum"];
+      json.items.oneOf = enumOneOf;
+    } else {
+      delete json["enum"];
+      json.oneOf = enumOneOf;
+    }
+
+    return json;
+  },
+  _patternAssignment: function _patternAssignment(json) {
+    if (!this.get('__isLoginOfBaseSchema__') || !this.get('__loginFormatRestriction__')) {
+      return json;
+    }
+
+    switch (this.get('__loginFormatRestriction__')) {
+      case SchemaUtil_1["default"].LOGINPATTERNFORMAT.EMAIL:
+        delete json.pattern;
+        break;
+
+      case SchemaUtil_1["default"].LOGINPATTERNFORMAT.CUSTOM:
+        json.pattern = this._buildLoginPattern(this.get('__loginFormatRestrictionCustom__'));
+        break;
+
+      case SchemaUtil_1["default"].LOGINPATTERNFORMAT.NONE:
+        json.pattern = loginFormatNonePattern;
+        break;
+    }
+
+    return json;
+  },
+  _uniquenessAssignment: function _uniquenessAssignment(json) {
+    if (!this.get('__unique__')) {
+      delete json.unique;
+    } else if (!this.get('__isUniqueness__')) {
+      json.unique = SchemaUtil_1["default"].UNIQUENESS.UNIQUE_VALIDATED;
+    }
+
+    return json;
+  },
+
+  /**
+   * Character should be escaped except letters, digits and hyphen
+   */
+  _escapedRegexChar: function _escapedRegexChar(pattern, index) {
+    var char = pattern.charAt(index);
+
+    if (escapedLoginCharsRe.test(char)) {
+      return '\\' + char;
+    }
+
+    return char;
+  },
+  _buildLoginPattern: function _buildLoginPattern(pattern) {
+    var result = '';
+
+    for (var i = 0; i < pattern.length; i++) {
+      result = result + this._escapedRegexChar(pattern, i);
+    }
+
+    return '[' + result + ']+';
+  },
+  _extractLoginPattern: function _extractLoginPattern(pattern) {
+    var re = /^\[(.*)\]\+/;
+    var matches = pattern.match(re);
+    return matches ? matches[1].replace(/\\(.)/g, '$1') : pattern;
+  },
+  _getEnumOneOfWithTitleCheck: function _getEnumOneOfWithTitleCheck() {
+    var enumOneOf = this.get('__oneOf__');
+    return underscore_wrapper_1["default"].map(enumOneOf, function (value) {
+      if (jquery_wrapper_1["default"].trim(value.title) !== '') {
+        return value;
+      }
+
+      value.title = !underscore_wrapper_1["default"].isString(value["const"]) ? JSON.stringify(value["const"]) : value["const"];
+      return value;
+    });
+  },
+  _updateTypeFormatConstraints: function _updateTypeFormatConstraints() {
+    var displayType = this.get('__displayType__'); // OKTA-31952 reset format according to its displayType
+
+    this.unset('format', {
+      silent: true
+    });
+    this.unset('items', {
+      silent: true
+    });
+    this.set(SchemaUtil_1["default"].DISPLAYTYPES[displayType]);
+
+    if (displayType !== NUMBER && displayType !== INTEGER) {
+      this.unset('minimum');
+      this.unset('maximum');
+    }
+
+    if (displayType !== STRING) {
+      this.unset('minLength');
+      this.unset('maxLength');
+    }
+
+    this.unset('__minVal__');
+    this.unset('__maxVal__');
+    this.unset('__equals__');
+    this.set('__supportsMinMax__', SchemaUtil_1["default"].SUPPORTSMINMAX.indexOf(this.get('__displayType__')) !== -1);
+  },
+  _updateMinMax: function _updateMinMax() {
+    var min;
+    var max;
+    var displayType = this.get('__displayType__');
+
+    if (displayType === STRING) {
+      min = 'minLength';
+      max = 'maxLength';
+    } else if (displayType === INTEGER || displayType === NUMBER) {
+      min = 'minimum';
+      max = 'maximum';
+    }
+
+    if (this.get('__minVal__')) {
+      this.set(min, parseInt(this.get('__minVal__'), 10));
+    } else {
+      this.unset(min);
+    }
+
+    if (this.get('__maxVal__')) {
+      this.set(max, parseInt(this.get('__maxVal__'), 10));
+    } else {
+      this.unset(max);
+    }
+  },
+  _convertEqualsToMinMax: function _convertEqualsToMinMax() {
+    var equals = this.get('__equals__');
+
+    if (equals) {
+      this.set('__minVal__', equals);
+      this.set('__maxVal__', equals);
+    }
+  },
+
+  /*
+   Normally we would use a derived property here but derived properties do not work with the model Clone function
+   so we use this workaround instead.
+   */
+  _setConstraintText: function _setConstraintText() {
+    var constraint = this.get('__constraint__');
+    var min = this.get('__minVal__');
+    var max = this.get('__maxVal__');
+    var equals = this.get('__equals__');
+
+    switch (constraint) {
+      case 'between':
+        this.set('__constraintText__', 'Between ' + min + ' and ' + max);
+        break;
+
+      case 'greaterThan':
+        this.set('__constraintText__', 'Greater than ' + min);
+        break;
+
+      case 'lessThan':
+        this.set('__constraintText__', 'Less than ' + max);
+        break;
+
+      case 'equals':
+        this.set('__constraintText__', 'Equals ' + equals);
+        break;
+
+      default:
+        this.set('__constraintText__', '');
+        break;
+    }
+  },
+  cleanup: function cleanup() {
+    if (this.get('__constraint__') === 'lessThan') {
+      this.unset('__minVal__');
+    } else if (this.get('__constraint__') === 'greaterThan') {
+      this.unset('__maxVal__');
+    }
+
+    if (this.get('scope') !== SchemaUtil_1["default"].SCOPE.SYSTEM) {
+      if (this.get('__isScopeSelf__') === true) {
+        this.set({
+          scope: SchemaUtil_1["default"].SCOPE.SELF
+        }, {
+          silent: true
+        });
+      } else {
+        this.unset('scope');
+      }
+    }
+
+    if (!this.get('__unique__')) {
+      this.unset('unique');
+    }
+  },
+
+  /**
+   * Since there is not an dedicated attribute to flag enum type,
+   * use enum values to determine whether the property is enum type or not.
+   */
+  isEnumType: function isEnumType() {
+    return !!this.getEnumValues();
+  },
+  getEnumValues: function getEnumValues() {
+    return this.get('oneOf') || this.get('enum') || this.get('items') && this.get('items')['oneOf'] || this.get('items') && this.get('items')['enum'];
+  },
+  detectHasEnumDefined: function detectHasEnumDefined() {
+    var enumValues = this.getEnumValues();
+
+    if (!enumValues) {
+      return;
+    }
+
+    this.set('__oneOf__', EnumTypeHelper_1["default"].convertToOneOf(enumValues));
+    this.set('__enumDefined__', true);
+  }
+});
+var SchemaPropertySchemaProperties = BaseCollection_1["default"].extend({
+  model: SchemaPropertySchemaProperty,
+  clone: function clone() {
+    return new this.constructor(this.toJSON({
+      verbose: true
+    }), {
+      parse: true
+    });
+  },
+  areAllReadOnly: function areAllReadOnly() {
+    return underscore_wrapper_1["default"].all(this.pluck('__isReadOnly__'));
+  },
+  createModelProperties: function createModelProperties() {
+    return this.reduce(function (p, schemaProperty) {
+      var type = schemaProperty.get('type');
+      p[schemaProperty.id] = underscore_wrapper_1["default"].clone(SchemaUtil_1["default"].DISPLAYTYPES[type]);
+
+      if (SchemaUtil_1["default"].SUPPORTSMINMAX.indexOf(type) !== -1) {
+        p[schemaProperty.id].minLength = schemaProperty.get('minLength');
+        p[schemaProperty.id].maxLength = schemaProperty.get('maxLength');
+      }
+
+      if (type === 'string') {
+        p[schemaProperty.id].format = schemaProperty.get('format');
+      }
+
+      return p;
+    }, {});
+  }
+});
+exports.default = {
+  Model: SchemaPropertySchemaProperty,
+  Collection: SchemaPropertySchemaProperties
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/BaseController.ts":
+/*!**********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/BaseController.ts ***!
+  \**********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint max-len: [2, 150] */
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ./jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var BaseRouter_1 = __importDefault(__webpack_require__(/*! ./BaseRouter */ "../../../../../../okta/okta-ui/packages/courage/src/util/BaseRouter.ts"));
+
+var SettingsModel_1 = __importDefault(__webpack_require__(/*! ./SettingsModel */ "../../../../../../okta/okta-ui/packages/courage/src/util/SettingsModel.ts"));
+
+var StateMachine_1 = __importDefault(__webpack_require__(/*! ./StateMachine */ "../../../../../../okta/okta-ui/packages/courage/src/util/StateMachine.ts"));
+
+var BaseView_1 = __importDefault(__webpack_require__(/*! ../views/BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
+
+function clean(obj) {
+  var res = {};
+  underscore_wrapper_1["default"].each(obj, function (value, key) {
+    if (!underscore_wrapper_1["default"].isNull(value)) {
+      res[key] = value;
+    }
+  });
+  return res;
+}
+/**
+ * A Controller is our application control flow component.
+ *
+ * Typically it will:
+ * - Initialize the models, controller and main views
+ * - Listen to events
+ * - Create, read, update and delete models
+ * - Create modal dialogs, confirmation dialogs and alert dialogs
+ * - Control the application flow
+ *
+ * The constructor is responsible for:
+ * - Create the application state object
+ * - Assign or creates the application settings object
+ * - Create an instance of the main view with the relevant parameters
+ *
+ * See:
+ * [Hello World Tutorial](https://github.com/okta/courage/wiki/Hello-World),
+ * [Jasmine Spec](https://github.com/okta/okta-core/blob/master/WebContent/js/test/unit/spec/shared/util/BaseController_spec.js)
+ *
+ * @class module:Okta.Controller
+ * @param {Object} options Options Hash
+ * @param {SettingsModel} [options.settings] Application Settings Model
+ * @param {String} options.el a jQuery selector string stating where to attach the controller in the DOM
+ */
+
+
+exports.default = BaseView_1["default"].extend(
+/** @lends module:Okta.Controller.prototype */
+{
+  constructor: function constructor(options) {
+    /* eslint max-statements: [2, 21], complexity: [2, 12] */
+    if (options === void 0) {
+      options = {};
+    } // If 'state' is passed down as options, use it, else create a 'new StateMachine()'
+
+
+    this.state = underscore_wrapper_1["default"].result(this, 'state');
+    var hasStateBeenInitialized = this.state instanceof StateMachine_1["default"] || options.state instanceof StateMachine_1["default"];
+
+    if (!hasStateBeenInitialized) {
+      var stateData = underscore_wrapper_1["default"].defaults(clean(options.state), this.state || {}); // TODO:
+      // `framework/View.js set `this.state = options.state.`.
+      // Therefore we could consider to do
+      // 1. `options.state = new StateMachine()`
+      // 2. remove `delete options.state`
+
+      this.state = new StateMachine_1["default"](stateData);
+      delete options.state;
+    }
+
+    if (!options.settings) {
+      // allow the controller to live without a router
+      options.settings = new SettingsModel_1["default"](underscore_wrapper_1["default"].omit(options || {}, 'el'));
+      this.listen('notification', BaseRouter_1["default"].prototype._notify);
+      this.listen('confirmation', BaseRouter_1["default"].prototype._confirm);
+    }
+
+    BaseView_1["default"].call(this, options);
+    this.listenTo(this.state, '__invoke__', function () {
+      var args = underscore_wrapper_1["default"].toArray(arguments);
+      var method = args.shift();
+
+      if (underscore_wrapper_1["default"].isFunction(this[method])) {
+        this[method].apply(this, args);
+      }
+    });
+    var MainView; // if `this.View` is already a Backbone View
+
+    if (this.View && this.View.isCourageView) {
+      MainView = this.View;
+    } // if `this.View` is a pure function that returns a Backbone View
+    else if (underscore_wrapper_1["default"].result(this, 'View') && underscore_wrapper_1["default"].result(this, 'View').isCourageView) {
+      MainView = underscore_wrapper_1["default"].result(this, 'View');
+    }
+
+    if (MainView) {
+      this.add(new MainView(this.toJSON()));
+    }
+  },
+
+  /**
+   * The default values of our application state
+   * @type {Object}
+   * @default {}
+   */
+  state: {},
+
+  /**
+   * The main view this controller operate on
+   * @type {module:Okta.View}
+   * @default null
+   */
+  View: null,
+
+  /**
+   * Renders the {@link module:Okta.Controller#View|main view} after the DOM is ready
+   * in case the controller is the root component of the page (e.g there's no router)
+   */
+  render: function render() {
+    var args = arguments;
+    var self = this;
+    (0, jquery_wrapper_1["default"])(function () {
+      BaseView_1["default"].prototype.render.apply(self, args);
+    });
+    return this;
+  },
+
+  /**
+   * Creates the view constructor options
+   * @param {Object} [options] Extra options
+   * @return {Object} The view constructor options
+   */
+  toJSON: function toJSON(options) {
+    return underscore_wrapper_1["default"].extend(underscore_wrapper_1["default"].pick(this, 'state', 'settings', 'collection', 'model'), options || {});
+  },
+
+  /**
+   * Removes the child views, empty the DOM element and stop listening to events
+   */
+  remove: function remove() {
+    this.removeChildren();
+    this.stopListening();
+    this.$el.empty();
+    return this;
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/BaseRouter.ts":
+/*!******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/BaseRouter.ts ***!
+  \******************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint max-len: [2, 150], max-params: [2, 7] */
+
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ./jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Logger_1 = __importDefault(__webpack_require__(/*! ./Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
+
+var SettingsModel_1 = __importDefault(__webpack_require__(/*! ./SettingsModel */ "../../../../../../okta/okta-ui/packages/courage/src/util/SettingsModel.ts"));
+
+var ConfirmationDialog_1 = __importDefault(__webpack_require__(/*! ConfirmationDialog */ "./buildtools/ConfirmationDialog.ts"));
+
+var Notification_1 = __importDefault(__webpack_require__(/*! ../views/components/Notification */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/Notification.js"));
+
+function getRoute(router, route) {
+  var root = underscore_wrapper_1["default"].result(router, 'root') || '';
+
+  if (root && underscore_wrapper_1["default"].isString(route)) {
+    return [root, route].join('/').replace(/\/{2,}/g, '/');
+  }
+
+  return route;
+}
+/**
+ * BaseRouter is a standard [Backbone.Router](http://backbonejs.org/#Router)
+ * with a few additions:
+ * - Explicit mapping between routes and controllers
+ * - Support for rendering notification and confirmation dialogs
+ *
+ * Checkout the [Hello World Tutorial](https://github.com/okta/courage/wiki/Hello-World)
+ * for a step-by-step guide to using this.
+ *
+ * @class module:Okta.Router
+ * @extends external:Backbone.Router
+ * @param {Object} options options hash
+ * @param {String} options.el a jQuery selector string stating where to attach the controller in the DOM
+ */
+
+
+exports.default = backbone_1["default"].Router.extend(
+/** @lends module:Okta.Router.prototype */
+{
+  /**
+   * The root URL for the router. When setting {@link http://backbonejs.org/#Router-routes|routes},
+   * it will be prepended to each route.
+   * @type {String|Function}
+   */
+  root: '',
+  listen: Notification_1["default"].prototype.listen,
+  constructor: function constructor(options) {
+    if (options === void 0) {
+      options = {};
+    }
+
+    this.el = options.el;
+    /**
+     * Make sure `this.settings` has been set before invoke super - `Backbone.Router.apply`,
+     * which will invoke `this.initialize`, which could use `this.settings`.
+     *
+     * In theory we can set `this.settings` in `this.initialize` and assume `child.initialize`
+     * will invoke `super.initialize` first. But in reality, `child.initialize` doesn't call
+     * `super.initialize` at all.
+     */
+
+    this.settings = new SettingsModel_1["default"](underscore_wrapper_1["default"].omit(options, 'el'));
+
+    if (options.root) {
+      this.root = options.root;
+    }
+
+    backbone_1["default"].Router.apply(this, arguments);
+    this.listen('notification', this._notify);
+    this.listen('confirmation', this._confirm);
+  },
+
+  /**
+   * Fires up a confirmation dialog
+   *
+   * @param  {Object} options Options Hash
+   * @param  {String} options.title The title
+   * @param  {Array<string>} buttonOrder The order of the buttons
+   * @param  {String} options.subtitle The explain text
+   * @param  {String} options.save The text for the save button
+   * @param  {Function} options.ok The callback function to run when hitting "OK"
+   * @param  {String} options.cancel The text for the cancel button
+   * @param  {Function} options.cancelFn The callback function to run when hitting "Cancel"
+   * @param  {Boolean} options.noCancelButton Don't render the cancel button (useful for alert dialogs)
+   * @param  {Boolean} options.noSubmitButton Don't render the primary button (useful for alert dialogs)
+   * @private
+   *
+   * @return {Okta.View} the dialog view
+   */
+  _confirm: function _confirm(options) {
+    options || (options = {});
+    var Dialog = ConfirmationDialog_1["default"].extend(underscore_wrapper_1["default"].pick(options, 'title', 'subtitle', 'save', 'ok', 'cancel', 'cancelFn', 'noCancelButton', 'noSubmitButton', 'content', 'danger', 'type', 'closeOnOverlayClick', 'buttonOrder'));
+    var dialog = new Dialog({
+      model: this.settings
+    }); // The model is here because itsa part of the BaseForm paradigm.
+    // It will be ignored in the context of a confirmation dialog.
+
+    dialog.render();
+    return dialog; // test hook
+  },
+
+  /**
+   * Fires up a notification banner
+   *
+   * @param  {Object} options Options Hash
+   * @return {Okta.View} the notification view
+   * @private
+   */
+  _notify: function _notify(options) {
+    var notification = new Notification_1["default"](options);
+    (0, jquery_wrapper_1["default"])('#content').prepend(notification.render().el);
+    return notification; // test hook
+  },
+
+  /**
+   * Renders a Controller
+   * This will initialize new instance of a controller and call render on it
+   *
+   * @param  {Okta.Controller} Controller The controller Class we which to render
+   * @param  {Object} [options] Extra options to the controller constructor
+   */
+  render: function render(Controller, options) {
+    this.unload();
+    options = underscore_wrapper_1["default"].extend(underscore_wrapper_1["default"].pick(this, 'settings', 'el'), options || {});
+    this.controller = new Controller(options);
+    this.controller.render();
+  },
+
+  /**
+   * Starts the backbone history object
+   *
+   * Waits for the dom to be ready before calling `Backbone.history.start()` (IE issue).
+   *
+   * See [Backbone History](http://backbonejs.org/#History) for more information.
+   */
+  start: function start() {
+    var args = arguments;
+    (0, jquery_wrapper_1["default"])(function () {
+      if (backbone_1["default"].History.started) {
+        Logger_1["default"].error('History has already been started');
+        return;
+      }
+
+      backbone_1["default"].history.start.apply(backbone_1["default"].history, args);
+    });
+  },
+
+  /**
+   * Removes active controller and frees up event listeners
+   */
+  unload: function unload() {
+    if (this.controller) {
+      this.stopListening(this.controller);
+      this.stopListening(this.controller.state);
+      this.controller.remove();
+    }
+  },
+  route: function route(_route, name, callback) {
+    return backbone_1["default"].Router.prototype.route.call(this, getRoute(this, _route), name, callback);
+  },
+  navigate: function navigate(fragment, options) {
+    return backbone_1["default"].Router.prototype.navigate.call(this, getRoute(this, fragment), options);
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/ButtonFactory.ts":
+/*!*********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/ButtonFactory.ts ***!
+  \*********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint '@okta/okta-ui/no-deprecated-methods': [0, [{ name: 'BaseButtonLink.extend', use: 'Okta.createButton'}, ]] */
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var BaseButtonLink_1 = __importDefault(__webpack_require__(/*! ../views/components/BaseButtonLink */ "../../../../../../okta/okta-ui/packages/courage/src/views/components/BaseButtonLink.js"));
+/**
+ * A factory method wrapper for {@link BaseButtonLink} creation
+ * @class module:Okta.internal.util.ButtonFactory
+ */
+
+
+function normalizeEvents(options) {
+  var events = underscore_wrapper_1["default"].extend(options.click ? {
+    click: options.click
+  } : {}, options.events || {});
+  var target = {};
+  underscore_wrapper_1["default"].each(events, function (fn, eventName) {
+    target[eventName] = function (e) {
+      if (!options.href) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+
+      if (!(this.disabled && eventName === 'click')) {
+        fn.apply(this, arguments);
+      }
+    };
+  });
+  return target;
+}
+
+exports.default = {
+  /**
+   * Creates a {@link module:Okta.internal.views.components.BaseButtonLink|BaseButtonLink}.
+   * @param  {Object} options Options hash
+   * @param  {String} [options.title] The button text
+   * @param  {String} [options.icon]
+   * CSS class for the icon to display. See [Style guide](http://rain.okta1.com:1802/su/dev/style-guide#icons)
+   * @param {String} [options.href] The button link
+   * @param {Function} [options.click] On click callback
+   * @param {Object} [options.events] a [Backbone events](http://backbonejs.org/#View-delegateEvents) hash
+   * @returns {module:Okta.internal.views.components.BaseButtonLink} BaseButtonLink prototype ("class")
+   */
+  create: function create(options) {
+    options = underscore_wrapper_1["default"].clone(options);
+    options.attrs = options.attributes;
+    delete options.attributes;
+    return BaseButtonLink_1["default"].extend(underscore_wrapper_1["default"].extend(options, {
+      events: normalizeEvents(options)
+    }));
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Class.ts":
+/*!*************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Class.ts ***!
+  \*************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var backbone_1 = __importDefault(__webpack_require__(/*! backbone */ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+function Class(options) {
+  this.options = underscore_wrapper_1["default"].clone(options || {});
+  this.cid = underscore_wrapper_1["default"].uniqueId('class');
+  this.initialize.apply(this, arguments);
+}
+
+underscore_wrapper_1["default"].extend(Class.prototype, backbone_1["default"].Events, {
+  initialize: function initialize() {}
+});
+Class.extend = backbone_1["default"].Model.extend;
+exports.default = Class;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Clipboard.ts":
+/*!*****************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Clipboard.ts ***!
+  \*****************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var clipboard_1 = __importDefault(__webpack_require__(/*! clipboard */ "../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard.js"));
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ./jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var View_1 = __importDefault(__webpack_require__(/*! ../framework/View */ "../../../../../../okta/okta-ui/packages/courage/src/framework/View.ts"));
+
+var Class_1 = __importDefault(__webpack_require__(/*! ./Class */ "../../../../../../okta/okta-ui/packages/courage/src/util/Class.ts"));
+
+var Clipboard = clipboard_1["default"];
+var OPTIONS = ['success', 'error', 'target', 'text'];
+var ClipboardClipboardWrapper = Class_1["default"].extend({
+  initialize: function initialize(el, options) {
+    /* eslint complexity:0, max-statements: [2, 24] */
+    options = underscore_wrapper_1["default"].pick(options || {}, OPTIONS);
+    var trigger;
+    var target;
+    var text;
+
+    if (underscore_wrapper_1["default"].isString(el)) {
+      trigger = el;
+    }
+
+    if (underscore_wrapper_1["default"].isElement(el)) {
+      trigger = el;
+    }
+
+    if (el instanceof jquery_wrapper_1["default"]) {
+      trigger = el.selector; // TODO
+    }
+
+    if (el instanceof View_1["default"]) {
+      trigger = el.el;
+    }
+
+    if (underscore_wrapper_1["default"].isFunction(options.target)) {
+      target = options.target;
+    }
+
+    if (underscore_wrapper_1["default"].isElement(options.target)) {
+      target = underscore_wrapper_1["default"].constant(options.target);
+    }
+
+    if (underscore_wrapper_1["default"].isString(options.text)) {
+      text = underscore_wrapper_1["default"].constant(options.text);
+    } else if (underscore_wrapper_1["default"].isFunction(options.text)) {
+      text = options.text;
+    }
+
+    this.__instance = new Clipboard(trigger, {
+      target: target,
+      text: text
+    });
+    this.done = underscore_wrapper_1["default"].partial(this.__setCallback, 'success');
+    this.error = underscore_wrapper_1["default"].partial(this.__setCallback, 'error');
+    this.done(options.success);
+    this.error(options.error);
+  },
+  __setCallback: function __setCallback(event, callback) {
+    if (!underscore_wrapper_1["default"].isFunction(callback)) {
+      return;
+    }
+
+    this.__instance.on(event, callback);
+
+    return this.__instance;
+  }
+});
+/**
+ * @class Clipboard
+ * @abstract
+ *
+ * Abstract class that initializes a Clipboard
+ *   https://clipboardjs.com/
+ *
+ * ### Example:
+ *
+ *  ```javascript
+ *  //attach a selector
+ *  Clipboard.attach('.copy-button');
+ *
+ *  //attach a node, and set a constant string
+ *  Clipboard.attach(buttonView.el, {
+ *    text: 'this is the content'
+ *  });
+ *
+ *  //attach a view, set text dynamically, and set callback
+ *  Clipboard.attach(buttonView, {
+ *    text: function (triggerNode) {
+ *      return $(triggerNode).attr('foo') + model.get('userName');
+ *    }
+ *  }).done(function (targetNode) {
+ *    var msg = ['"', targetNode.text, '" is copied'].join('');
+ *    view.notify('success', msg);
+ *  });
+ *
+ *  //attach a jquery object, set the target node, and set callback
+ *  Clipboard.attach($('.customizeTarget'), {
+ *    target: function (triggerNode) {
+ *      return triggerNode;
+ *    },
+ *    success: function (targetNode) {
+ *      view.notify('success', 'copied!');
+ *    }
+ *  });
+ *
+ * ```
+ */
+
+exports.default = {
+  /**
+   * @param {String|Node|View|jQuery} [el] el could be a selector (recommended),
+   *           a dom node, a view or a jquery object
+   * @param {Object} [options] Options hash
+   * @param  {Node|Function} [options.target] a static dom node
+   *           or a function that takes trigger node and returns a target node
+   * @param {String|Function} [options.text] a static string or a function that returns a string dynamically
+   * @param {Function} [options.success] success callback
+   * @param {Function} [options.error] error callback
+   * @return {Object} The clipboard object
+   */
+  attach: function attach(el, options) {
+    return new ClipboardClipboardWrapper(el, options);
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Cookie.ts":
+/*!**************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Cookie.ts ***!
+  \**************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var js_cookie_1 = __importDefault(__webpack_require__(/*! vendor/lib/js.cookie */ "../../../../../../okta/okta-ui/packages/courage/src/vendor/lib/js.cookie.js"));
+
+var SECURED_COOKIE = /^https/.test(window.location.href);
+exports.default = {
+  setCookie: function setCookie(name, value, options) {
+    js_cookie_1["default"].set(name, value, underscore_wrapper_1["default"].defaults(options || {}, {
+      secure: SECURED_COOKIE,
+      path: '/'
+    }));
+  },
+  getCookie: function getCookie() {
+    return js_cookie_1["default"].get.apply(js_cookie_1["default"], arguments);
+  },
+  removeCookie: function removeCookie() {
+    return js_cookie_1["default"].remove.apply(js_cookie_1["default"], arguments);
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts":
+/*!************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Keys.ts ***!
+  \************************************************************************/
+/***/ (function(module, exports) {
+
+"use strict";
+
+
+exports.__esModule = true;
+exports.default = {
+  UP: 38,
+  DOWN: 40,
+  DEL: 46,
+  TAB: 9,
+  RETURN: 13,
+  ENTER: 13,
+  ESC: 27,
+  COMMA: 188,
+  PAGEUP: 33,
+  PAGEDOWN: 34,
+  SPACE: 32,
+  BACKSPACE: 8,
+  __isKey: function __isKey(e, key) {
+    return (e.which || e.keyCode) === this[key];
+  },
+  isEnter: function isEnter(e) {
+    return this.__isKey(e, 'ENTER');
+  },
+  isEsc: function isEsc(e) {
+    return this.__isKey(e, 'ESC');
+  },
+  isSpaceBar: function isSpaceBar(e) {
+    return this.__isKey(e, 'SPACE');
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts":
+/*!**************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts ***!
+  \**************************************************************************/
+/***/ (function(module, exports) {
+
+"use strict";
+
+
+var __spreadArray = void 0 && (void 0).__spreadArray || function (to, from, pack) {
+  if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+    if (ar || !(i in from)) {
+      if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+      ar[i] = from[i];
+    }
+  }
+  return to.concat(ar || Array.prototype.slice.call(from));
+};
+
+exports.__esModule = true;
+
+function _log(level) {
+  var _a;
+
+  var args = [];
+
+  for (var _i = 1; _i < arguments.length; _i++) {
+    args[_i - 1] = arguments[_i];
+  }
+
+  if (window.console && window.okta && window.okta.debug) {
+    (_a = window.console)[level].apply(_a, args);
+  }
+}
+/**
+ * Utility library of logging functions.
+ * @class module:Okta.Logger
+ */
+
+
+exports.default = {
+  /**
+   * See [console.trace](https://developer.mozilla.org/en-US/docs/Web/API/Console.trace)
+   * @static
+   */
+  trace: function trace() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['trace'], args, false));
+  },
+
+  /**
+   * See [console.dir](https://developer.mozilla.org/en-US/docs/Web/API/Console.dir)
+   * @static
+   */
+  dir: function dir() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['dir'], args, false));
+  },
+
+  /**
+   * See [console.time](https://developer.mozilla.org/en-US/docs/Web/API/Console.time)
+   * @static
+   */
+  time: function time() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['time'], args, false));
+  },
+
+  /**
+   * See [console.timeEnd](https://developer.mozilla.org/en-US/docs/Web/API/Console.timeEnd)
+   * @static
+   */
+  timeEnd: function timeEnd() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['timeEnd'], args, false));
+  },
+
+  /**
+   * See [console.group](https://developer.mozilla.org/en-US/docs/Web/API/Console.group)
+   * @static
+   */
+  group: function group() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['group'], args, false));
+  },
+
+  /**
+   * See [console.groupEnd](https://developer.mozilla.org/en-US/docs/Web/API/Console.groupEnd)
+   * @static
+   */
+  groupEnd: function groupEnd() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['groupEnd'], args, false));
+  },
+
+  /**
+   * See [console.assert](https://developer.mozilla.org/en-US/docs/Web/API/Console.assert)
+   * @static
+   */
+  assert: function assert() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['assert'], args, false));
+  },
+
+  /**
+   * See [console.log](https://developer.mozilla.org/en-US/docs/Web/API/Console.log)
+   * @static
+   */
+  log: function log() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['log'], args, false));
+  },
+
+  /**
+   * See [console.info](https://developer.mozilla.org/en-US/docs/Web/API/Console.info)
+   * @static
+   */
+  info: function info() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['info'], args, false));
+  },
+
+  /**
+   * See [console.warn](https://developer.mozilla.org/en-US/docs/Web/API/Console.warn)
+   * @static
+   */
+  warn: function warn() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['warn'], args, false));
+  },
+
+  /**
+   * See [console.error](https://developer.mozilla.org/en-US/docs/Web/API/Console.error)
+   * @static
+   */
+  error: function error() {
+    var args = [];
+
+    for (var _i = 0; _i < arguments.length; _i++) {
+      args[_i] = arguments[_i];
+    }
+
+    return _log.apply(void 0, __spreadArray(['error'], args, false));
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts":
+/*!******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/SchemaUtil.ts ***!
+  \******************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var StringUtil_1 = __importDefault(__webpack_require__(/*! ./StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
+
+var loc = StringUtil_1["default"].localize;
+var SchemaUtils = {
+  STRING: 'string',
+  NUMBER: 'number',
+  INTEGER: 'integer',
+  BOOLEAN: 'boolean',
+  OBJECT: 'object',
+  FORMATDISPLAYTYPE: {
+    'date-time': 'date',
+    uri: 'uri',
+    email: 'email',
+    // TODO: settle on using EITHER underscores OR hyphens --- not both (OKTA-202818)
+    'country-code': 'country-code',
+    'language-code': 'language-code',
+    'country_code': 'country_code',
+    'language_code': 'language_code',
+    locale: 'locale',
+    timezone: 'timezone',
+    'ref-id': 'reference'
+  },
+  ARRAYDISPLAYTYPE: {
+    arrayofobject: 'arrayofobject',
+    arrayofstring: 'arrayofstring',
+    arrayofnumber: 'arrayofnumber',
+    arrayofinteger: 'arrayofinteger',
+    'arrayofref-id': 'arrayofref-id'
+  },
+  DISPLAYTYPES: {
+    date: {
+      type: 'string',
+      format: 'date-time'
+    },
+    uri: {
+      type: 'string',
+      format: 'uri'
+    },
+    email: {
+      type: 'string',
+      format: 'email'
+    },
+    // TODO: Resolve inconsistencies in hyphens vs. underscores for these properties (OKTA-202818)
+    // use country-code if attribute should be restricted to country code type
+    'country-code': {
+      type: 'string',
+      format: 'country-code'
+    },
+    'language-code': {
+      type: 'string',
+      format: 'language-code'
+    },
+    'country_code': {
+      type: 'string'
+    },
+    'language_code': {
+      type: 'string'
+    },
+    locale: {
+      type: 'string',
+      format: 'locale'
+    },
+    timezone: {
+      type: 'string',
+      format: 'timezone'
+    },
+    string: {
+      type: 'string'
+    },
+    number: {
+      type: 'number'
+    },
+    boolean: {
+      type: 'boolean'
+    },
+    integer: {
+      type: 'integer'
+    },
+    reference: {
+      type: 'string',
+      format: 'ref-id'
+    },
+    arrayofobject: {
+      type: 'array',
+      items: {
+        type: 'object'
+      }
+    },
+    arrayofstring: {
+      type: 'array',
+      items: {
+        type: 'string'
+      }
+    },
+    arrayofnumber: {
+      type: 'array',
+      items: {
+        type: 'number'
+      }
+    },
+    arrayofinteger: {
+      type: 'array',
+      items: {
+        type: 'integer'
+      }
+    },
+    'arrayofref-id': {
+      type: 'array',
+      items: {
+        type: 'string',
+        format: 'ref-id'
+      }
+    },
+    image: {
+      type: 'image'
+    },
+    password: {
+      type: 'string'
+    }
+  },
+  SUPPORTSMINMAX: ['string', 'number', 'integer', 'password'],
+  SUPPORTENUM: ['string', 'number', 'integer', 'object', 'arrayofstring', 'arrayofnumber', 'arrayofinteger', 'arrayofobject'],
+  DATATYPE: {
+    string: 'string',
+    number: 'number',
+    boolean: 'boolean',
+    integer: 'integer',
+    date: 'datetime',
+    object: 'object',
+    arrayofobject: 'object array',
+    arrayofstring: 'string array',
+    arrayofnumber: 'number array',
+    arrayofinteger: 'integer array',
+    'arrayofref-id': 'reference array',
+    // TODO: settle on using EITHER underscores OR hyphens --- not both (OKTA-202818)
+    'country-code': 'country code',
+    'language-code': 'language code',
+    'country_code': 'country code',
+    'language_code': 'language code',
+    reference: 'reference',
+    timezone: 'timezone',
+    image: 'image'
+  },
+  MUTABILITY: {
+    READONLY: 'READ_ONLY',
+    WRITEONLY: 'WRITE_ONLY',
+    READWRITE: 'READ_WRITE',
+    IMMUTABLE: 'IMMUTABLE'
+  },
+  SCOPE: {
+    NONE: 'NONE',
+    SELF: 'SELF',
+    SYSTEM: 'SYSTEM'
+  },
+  DISPLAYSCOPE: {
+    SELF: 'User personal',
+    SYSTEM: 'System',
+    NA: 'None'
+  },
+  UNION: {
+    DISABLE: 'DISABLE',
+    ENABLE: 'ENABLE'
+  },
+  UNION_OPTIONS: {
+    DISABLE: loc('universal-directory.profiles.attribute.form.union.enable.display', 'courage'),
+    ENABLE: loc('universal-directory.profiles.attribute.form.union.disable.display', 'courage')
+  },
+  PERMISSION: {
+    HIDE: 'HIDE',
+    READ_ONLY: 'READ_ONLY',
+    WRITE_ONLY: 'WRITE_ONLY',
+    READ_WRITE: 'READ_WRITE'
+  },
+  ENDUSER_ATTRIBUTE_PERMISSION_OPTIONS: {
+    HIDE: loc('universal-directory.profiles.attribute.enduser.permission.hide', 'courage'),
+    READ_ONLY: loc('universal-directory.profiles.attribute.enduser.permission.readonly', 'courage'),
+    READ_WRITE: loc('universal-directory.profiles.attribute.enduser.permission.readwrite', 'courage')
+  },
+  ATTRIBUTE_LEVEL_MASTERING_OPTIONS: {
+    INHERIT: loc('universal-directory.profiles.attribute.source.inherit', 'courage'),
+    OKTA_MASTERED: loc('universal-directory.profiles.attribute.source.oktamastered', 'courage'),
+    OVERRIDE: loc('universal-directory.profiles.attribute.source.override', 'courage')
+  },
+  USERNAMETYPE: {
+    NONE: 'non-username',
+    OKTA_TO_APP: 'okta-to-app-username',
+    OKTA_TO_AD: 'okta-to-ad-username',
+    APP_TO_OKTA: 'app-to-okta-username',
+    IDP_TO_OKTA: 'idp-to-okta-username'
+  },
+  LOGINPATTERNFORMAT: {
+    EMAIL: 'EMAIL',
+    CUSTOM: 'CUSTOM',
+    NONE: 'NONE'
+  },
+  UNIQUENESS: {
+    NOT_UNIQUE: 'NOT_UNIQUE',
+    PENDING_UNIQUENESS: 'PENDING_UNIQUENESS',
+    UNIQUE_VALIDATED: 'UNIQUE_VALIDATED'
+  },
+
+  /*
+   * Get a display string for a schema attribute type.
+   * @param {String} type Type of an attribute
+   * @param {String} format Format of an attribute
+   * @param {String} itemType Item type of an attribute if an array
+   * @param {String} defaultValue The default value if an attribute type is undefined
+   * @return {String} the display value
+   */
+  getDisplayType: function getDisplayType(type, format, itemType, defaultValue) {
+    var displayType; // type is undefined for
+    // - an un-mapped source attribute from mapping
+    // - an source attribute which is mapped to username target attribute
+
+    if (type) {
+      // format is only defined for complicated types (ex. reference, date time, array)
+      // not for simple types (ex. string, integer, boolean)
+      if (format) {
+        displayType = this.FORMATDISPLAYTYPE[format];
+      } else {
+        // itemType is only defined for array type
+        // to specify an array element type (ex. string, integer, number)
+        displayType = itemType ? this.ARRAYDISPLAYTYPE[type + 'of' + itemType] : type;
+      }
+    }
+
+    if (!displayType) {
+      displayType = typeof defaultValue === 'undefined' ? '' : defaultValue;
+    }
+
+    return displayType;
+  },
+
+  /*
+   * Get attribute mapping source attribute username type
+   * @param {String} mappingDirection
+   * @param {String} targetName The mapping target attribute name
+   * @param {String} appName The app name that's mapped to/from Okta
+   * @return {String} the source attribute username type value
+   */
+  // eslint-disable-next-line complexity
+  getSourceUsernameType: function getSourceUsernameType(mappingDirection, targetName, appName) {
+    var sourceUsernameType = this.USERNAMETYPE.NONE;
+    /* eslint complexity: [2, 7] */
+
+    if (mappingDirection === 'oktaToApp') {
+      if (targetName === 'userName') {
+        sourceUsernameType = this.USERNAMETYPE.OKTA_TO_APP;
+      } else if (targetName === 'cn' && appName === 'active_directory') {
+        sourceUsernameType = this.USERNAMETYPE.OKTA_TO_AD;
+      }
+    } else if (mappingDirection === 'appToOkta' && targetName === 'login') {
+      if (appName === 'saml_idp') {
+        sourceUsernameType = this.USERNAMETYPE.IDP_TO_OKTA;
+      } else {
+        sourceUsernameType = this.USERNAMETYPE.APP_TO_OKTA;
+      }
+    }
+
+    return sourceUsernameType;
+  },
+  isArrayDataType: function isArrayDataType(type) {
+    return underscore_wrapper_1["default"].contains(underscore_wrapper_1["default"].values(this.ARRAYDISPLAYTYPE), type);
+  },
+  isObjectDataType: function isObjectDataType(type) {
+    return this.DATATYPE.object === type;
+  }
+};
+exports.default = SchemaUtils;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/SettingsModel.ts":
+/*!*********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/SettingsModel.ts ***!
+  \*********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Model_1 = __importDefault(__webpack_require__(/*! ../models/Model */ "../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts"));
+/**
+ * @class SettingsModel
+ * @extends {Okta.Model}
+ * @private
+ */
+
+
+exports.default = Model_1["default"].extend({
+  local: function local() {
+    var settings = window.okta && window.okta.settings || {};
+    var theme = window.okta && window.okta.theme || '';
+    return {
+      orgId: ['string', false, settings.orgId],
+      orgName: ['string', false, settings.orgName],
+      serverStatus: ['string', false, settings.serverStatus],
+      persona: ['string', false, settings.persona],
+      isDeveloperConsole: ['boolean', false, settings.isDeveloperConsole],
+      isPreview: ['boolean', false, settings.isPreview],
+      permissions: ['array', true, settings.permissions || []],
+      theme: ['string', false, theme]
+    };
+  },
+  constructor: function constructor() {
+    Model_1["default"].apply(this, arguments);
+    this.features = window._features || [];
+  },
+
+  /**
+   * Checks if the user have a feature flag enabled (Based of the org level feature flag)
+   * @param  {String}  feature Feature name
+   * @return {Boolean}
+   */
+  hasFeature: function hasFeature(feature) {
+    return underscore_wrapper_1["default"].contains(this.features, feature);
+  },
+
+  /**
+   * Checks if any of the given feature flags are enabled (Based of the org level feature flags)
+   * @param  {Array}  featureArray Features names
+   * @return {Boolean} true if any of the give features are enabled. False otherwise
+   */
+  hasAnyFeature: function hasAnyFeature(featureArray) {
+    return underscore_wrapper_1["default"].some(featureArray, this.hasFeature, this);
+  },
+
+  /**
+   * Checks if the user have a specific permission (based on data passed from JSP)
+   * @param  {String}  permission Permission name
+   * @return {Boolean}
+   */
+  hasPermission: function hasPermission(permission) {
+    return underscore_wrapper_1["default"].contains(this.get('permissions'), permission);
+  },
+
+  /**
+   * Checks if the org has ds theme set
+   * @return {Boolean}
+   */
+  isDsTheme: function isDsTheme() {
+    return this.get('theme') === 'dstheme';
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/StateMachine.ts":
+/*!********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/StateMachine.ts ***!
+  \********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Model_1 = __importDefault(__webpack_require__(/*! ../models/Model */ "../../../../../../okta/okta-ui/packages/courage/src/models/Model.ts"));
+/**
+ * @class StateMachine
+ * @extends Okta.Model
+ * @private
+ *
+ * A state object that holds the applciation state
+ */
+
+
+exports.default = Model_1["default"].extend({
+  /**
+   * Invokes a method on the applicable {@link Okta.Controller}
+   *
+   * ```javascript
+   * state.invoke('methodName', 'param1', 'param2')
+   * // Will call
+   * contoller.methodName('param1', 'param2')
+   * ```
+   * @param {String} methodName the name of the controller method to invoke on the controller
+   */
+  invoke: function invoke() {
+    var args = underscore_wrapper_1["default"].toArray(arguments);
+    args.unshift('__invoke__');
+    this.trigger.apply(this, args);
+  }
+});
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts":
+/*!******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts ***!
+  \******************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ./jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var okta_i18n_bundles_1 = __importDefault(__webpack_require__(/*! okta-i18n-bundles */ "okta-i18n-bundles"));
+
+var entityMap = {
+  '&amp;': '&',
+  '&lt;': '<',
+  '&gt;': '>',
+  '&quot;': '"',
+  '&#39;': '\'',
+  '&#039;': '\'',
+  '&#x2F;': '/'
+};
+var emailValidator = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@(?!-)((\[?[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\]?)|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+/**
+* Converts the locale code identifier from "${languageCode}-${countryCode}" to "${languageCode}_${countryCode}"
+* Follows the ISO-639-1 language code and 2-letter ISO-3166-1-alpha-2 country code structure.
+* @param {String} locale code identifier
+* @return {String} converted locale code identifier
+*/
+
+var parseLocale = function parseLocale(locale) {
+  if (/-/.test(locale)) {
+    var parts = locale.split('-');
+    parts[1] = parts[1].toUpperCase();
+    return parts.join('_');
+  }
+
+  return locale;
+};
+/* eslint max-len: 0*/
+
+/**
+ * Returns the language bundle based on the current locale.
+ * - If a locale is not provided, default to English ('en')
+ * - Legacy Support: If the named language bundle does not exist, fall back to the default named bundle.
+ *
+ * @param {*} bundleName
+ */
+
+
+function getBundle(bundleName) {
+  if (!bundleName) {
+    return okta_i18n_bundles_1["default"][underscore_wrapper_1["default"].keys(okta_i18n_bundles_1["default"])[0]];
+  }
+
+  var locale = parseLocale(window && window.okta && window.okta.locale) || 'en';
+  return okta_i18n_bundles_1["default"]["".concat(bundleName, "_").concat(locale)] || okta_i18n_bundles_1["default"][bundleName];
+}
+/**
+ *
+ * CustomEvent polyfill for IE
+ * https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent/CustomEvent#polyfill
+ */
+
+
+function IECustomEvent(event, params) {
+  params = params || {
+    bubbles: false,
+    cancelable: false,
+    detail: null
+  };
+  var evt = document.createEvent('CustomEvent');
+  evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
+  return evt;
+}
+/**
+ * Call the window.okta.emitL10nError function if it is defined
+ * @param {String} key The i18n key
+ * @param {String} bundleName The i18n bundle name
+ * @param {String} reason Could be 'bundle' (Bundle not found), 'key' (Key not found) or 'parameters' (Parameters mismatch).
+ */
+
+
+function emitL10nError(key, bundleName, reason) {
+  // CustomEvent polyfill for IE
+  if (!window.CustomEvent) {
+    window.CustomEvent = IECustomEvent;
+  } // dispatchEvent for sentry
+
+
+  if (typeof window.CustomEvent === 'function') {
+    var event_1 = new CustomEvent('okta-i18n-error', {
+      detail: {
+        type: 'l10n-error',
+        key: key,
+        bundleName: bundleName,
+        reason: reason
+      }
+    });
+    document.dispatchEvent(event_1);
+  }
+}
+
+var StringUtil =
+/** @lends module:Okta.internal.util.StringUtil */
+{
+  /** @static */
+  sprintf: function sprintf() {
+    var args = Array.prototype.slice.apply(arguments);
+    var value = args.shift();
+    var oldValue = value;
+    /* eslint max-statements: [2, 15] */
+
+    function triggerError() {
+      throw new Error('Mismatch number of variables: ' + arguments[0] + ', ' + JSON.stringify(args));
+    }
+
+    for (var i = 0, l = args.length; i < l; i++) {
+      var entity = args[i];
+      var regex = new RegExp('\\{' + i + '\\}', 'g');
+      value = value.replace(regex, entity);
+
+      if (entity === undefined || entity === null || value === oldValue) {
+        triggerError();
+      }
+
+      oldValue = value;
+    }
+
+    if (/\{[\d+]\}/.test(value)) {
+      triggerError();
+    }
+
+    return value;
+  },
+
+  /**
+   * Converts a URI encoded query string into a hash map
+   * @param  {String} query The query string
+   * @return {Object} The map
+   * @static
+   * @example
+   * StringUtil.parseQuery('foo=bar&baz=qux') // {foo: 'bar', baz: 'qux'}
+   */
+  parseQuery: function parseQuery(query) {
+    var params = {};
+    var pairs = decodeURIComponent(query.replace(/\+/g, ' ')).split('&');
+
+    for (var i = 0; i < pairs.length; i++) {
+      var pair = pairs[i];
+      var data = pair.split('=');
+      params[data.shift()] = data.join('=');
+    }
+
+    return params;
+  },
+
+  /** @static */
+  encodeJSObject: function encodeJSObject(jsObj) {
+    return encodeURIComponent(JSON.stringify(jsObj));
+  },
+
+  /** @static */
+  decodeJSObject: function decodeJSObject(jsObj) {
+    try {
+      return JSON.parse(decodeURIComponent(jsObj));
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /** @static */
+  unescapeHtml: function unescapeHtml(string) {
+    return String(string).replace(/&[\w#\d]{2,};/g, function (s) {
+      return entityMap[s] || s;
+    });
+  },
+
+  /**
+   * Get the original i18n template directly without string format with parameters
+   * @param {String} key The key
+   * @param {String} bundle="messages"] The name of the i18n bundle. Defaults to the first bundle in the list.
+   */
+  getTemplate: function getTemplate(key, bundleName) {
+    var bundle = getBundle(bundleName);
+
+    if (!bundle) {
+      emitL10nError(key, bundleName, 'bundle');
+      return 'L10N_ERROR[' + bundleName + ']';
+    }
+
+    if (bundle[key]) {
+      return bundle[key];
+    } else {
+      emitL10nError(key, bundleName, 'key');
+      return 'L10N_ERROR[' + key + ']';
+    }
+  },
+
+  /**
+   * Translate a key to the localized value
+   * @static
+   * @param  {String} key The key
+   * @param  {String} [bundle="messages"] The name of the i18n bundle. Defaults to the first bundle in the list.
+   * @param  {Array} [params] A list of parameters to apply as tokens to the i18n value
+   * @return {String} The localized value
+   */
+  localize: function localize(key, bundleName, params) {
+    var bundle = getBundle(bundleName);
+    /* eslint complexity: [2, 6] */
+
+    if (!bundle) {
+      emitL10nError(key, bundleName, 'bundle');
+      return 'L10N_ERROR[' + bundleName + ']';
+    }
+
+    var value = bundle[key];
+
+    try {
+      params = params && params.slice ? params.slice(0) : [];
+      params.unshift(value);
+      value = StringUtil.sprintf.apply(null, params);
+
+      if (value) {
+        return value;
+      } else {
+        emitL10nError(key, bundleName, 'key');
+        return 'L10N_ERROR[' + key + ']';
+      }
+    } catch (e) {
+      emitL10nError(key, bundleName, 'parameters');
+      return 'L10N_ERROR[' + key + ']';
+    }
+  },
+
+  /**
+   * Convert a string to a float if valid, otherwise return the string.
+   * Valid numbers may contain a negative sign and a decimal point.
+   * @static
+   * @param {String} string The string to convert to a number
+   * @return {String|Number} Returns a number if the string can be casted, otherwise returns the original string
+   */
+  parseFloat: function (_parseFloat) {
+    function parseFloat(_x) {
+      return _parseFloat.apply(this, arguments);
+    }
+
+    parseFloat.toString = function () {
+      return _parseFloat.toString();
+    };
+
+    return parseFloat;
+  }(function (string) {
+    var number = +string;
+    return typeof string === 'string' && number === parseFloat(string) ? number : string;
+  }),
+
+  /**
+   * Convert a string to an integer if valid, otherwise return the string
+   * @static
+   * @param {String} string The string to convert to an integer
+   * @return {String|integer} Returns an integer if the string can be casted, otherwise, returns the original string
+   */
+  parseInt: function (_parseInt) {
+    function parseInt(_x2) {
+      return _parseInt.apply(this, arguments);
+    }
+
+    parseInt.toString = function () {
+      return _parseInt.toString();
+    };
+
+    return parseInt;
+  }(function (string) {
+    var int = +string;
+    return underscore_wrapper_1["default"].isString(string) && int === parseInt(string, 10) ? int : string;
+  }),
+
+  /**
+   * Convert a string to an object if valid, otherwise return the string
+   * @static
+   * @param {String} string The string to convert to an object
+   * @return {String|object} Returns an object if the string can be casted, otherwise, returns the original string
+   */
+  parseObject: function parseObject(string) {
+    if (!underscore_wrapper_1["default"].isString(string)) {
+      return string;
+    }
+
+    try {
+      var object = JSON.parse(string);
+      return jquery_wrapper_1["default"].isPlainObject(object) ? object : string;
+    } catch (e) {
+      return string;
+    }
+  },
+
+  /**
+   * Returns a random string from [a-z][A-Z][0-9] of a given length
+   * @static
+   * @param {Number} length The length of the random string.
+   * @return {String} Returns a random string from [a-z][A-Z][0-9] of a given length
+   */
+  randomString: function randomString(length) {
+    var characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXTZabcdefghiklmnopqrstuvwxyz';
+
+    if (length === undefined) {
+      length = underscore_wrapper_1["default"].random(characters.length);
+    } else if (length === 0) {
+      return '';
+    }
+
+    var stringArray = [];
+
+    while (length--) {
+      stringArray.push(characters[underscore_wrapper_1["default"].random(characters.length - 1)]);
+    }
+
+    return stringArray.join('');
+  },
+
+  /**
+   * Returns if a str ends with another string
+   * @static
+   * @param {String} str The string to search
+   * @param {String} ends The string it should end with
+   *
+   * @return {Boolean} Returns if the str ends with ends
+   */
+  endsWith: function endsWith(str, ends) {
+    str += '';
+    ends += '';
+    return str.length >= ends.length && str.substring(str.length - ends.length) === ends;
+  },
+
+  /** @static */
+  isEmail: function isEmail(str) {
+    var target = jquery_wrapper_1["default"].trim(str);
+    return !underscore_wrapper_1["default"].isEmpty(target) && emailValidator.test(target);
+  }
+};
+/**
+ * Handy utility functions to handle strings.
+ *
+ * @class module:Okta.internal.util.StringUtil
+ * @hideconstructor
+ */
+
+exports.default = StringUtil;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/TemplateUtil.ts":
+/*!********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/TemplateUtil.ts ***!
+  \********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-methods: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+/**
+ * @class module:Okta.internal.util.TemplateUtil
+ * @hideconstructor
+ */
+
+
+exports.default = {
+  /**
+   * Compiles a Handlebars template
+   * @static
+   * @method
+   */
+  // TODO: This will be deprecated at some point. Views should use pre-compiled templates
+  tpl: underscore_wrapper_1["default"].memoize(function (tpl) {
+    /* eslint @okta/okta-ui/no-specific-methods: 0 */
+    return function (context) {
+      return handlebars_1["default"].compile(tpl)(context);
+    };
+  })
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Time.ts":
+/*!************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Time.ts ***!
+  \************************************************************************/
+/***/ (function(module, exports) {
+
+"use strict";
+
+
+exports.__esModule = true;
+exports.default = {
+  DEBOUNCE_DELAY: 200,
+  LOADING_FADE: 400,
+  UNLOADING_FADE: 400,
+  ROW_EXPANDER_TRANSITION: 150,
+  HIDE_ADD_MAPPING_FORM: 300
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/Util.ts":
+/*!************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/Util.ts ***!
+  \************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var BaseView_1 = __importDefault(__webpack_require__(/*! ../views/BaseView */ "../../../../../../okta/okta-ui/packages/courage/src/views/BaseView.js"));
+
+exports.default = {
+  redirect: function redirect(url) {
+    window.location = url;
+  },
+  reloadPage: function reloadPage() {
+    window.location.reload();
+  },
+  constantError: function constantError(errorMessage) {
+    return function () {
+      throw new Error(errorMessage);
+    };
+  },
+
+  /**
+   * Simply convert an URL query key value pair object into an URL query string.
+   * Remember NOT to escape the query string when using this util.
+   * example:
+   * input: {userId: 123, instanceId: undefined, expand: 'schema,app'}
+   * output: '?userId=123&expand=schema,app'
+   */
+  getUrlQueryString: function getUrlQueryString(queries) {
+    underscore_wrapper_1["default"].isObject(queries) || (queries = {});
+    var queriesString = underscore_wrapper_1["default"].without(underscore_wrapper_1["default"].map(queries, function (value, key) {
+      if (value !== undefined && value !== null) {
+        return key + '=' + encodeURIComponent(value);
+      }
+    }), undefined).join('&');
+    return underscore_wrapper_1["default"].isEmpty(queriesString) ? '' : '?' + queriesString;
+  },
+  isABaseView: function isABaseView(obj) {
+    return obj instanceof BaseView_1["default"] || obj.prototype instanceof BaseView_1["default"] || obj === BaseView_1["default"];
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/ViewUtil.ts":
+/*!****************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/ViewUtil.ts ***!
+  \****************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+function changeEventString(doWhen) {
+  return 'change:' + underscore_wrapper_1["default"].keys(doWhen).join(' change:');
+}
+
+function calcDoWhen(value, key) {
+  var modelValue = this.model.get(key);
+
+  if (underscore_wrapper_1["default"].isFunction(value)) {
+    return value.call(this, modelValue);
+  } else {
+    return value === modelValue;
+  }
+}
+
+function _doWhen(view, doWhen, fn) {
+  var toggle = underscore_wrapper_1["default"].bind(fn, view, view, doWhen);
+  view.render = underscore_wrapper_1["default"].wrap(view.render, function (render) {
+    var val = render.call(view);
+    toggle({
+      animate: false
+    });
+    return val;
+  });
+  view.listenTo(view.model, changeEventString(doWhen), function () {
+    toggle({
+      animate: true
+    });
+  });
+}
+
+exports.default = {
+  applyDoWhen: function applyDoWhen(view, doWhen, fn) {
+    if (!(view.model && underscore_wrapper_1["default"].isObject(doWhen) && underscore_wrapper_1["default"].size(doWhen) && underscore_wrapper_1["default"].isFunction(fn))) {
+      return;
+    }
+
+    _doWhen(view, doWhen, function (view, doWhen, options) {
+      var result = underscore_wrapper_1["default"].every(underscore_wrapper_1["default"].map(doWhen, calcDoWhen, view));
+      fn.call(view, result, options);
+    });
+  }
+};
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars-wrapper.ts":
+/*!**************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars-wrapper.ts ***!
+  \**************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+ // Handlebars "wrapper" is used by frontend code. It contains all helpers.
+// This runs in a browser / webpacked environment
+// TODO: Once all templates are precompiled, this file should use handlebars/runtime
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars")); // from vendor/lib
+
+
+__webpack_require__(/*! ./handlebars/handle-url */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/handle-url.ts");
+
+__webpack_require__(/*! ./handlebars/helper-base64 */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-base64.ts");
+
+__webpack_require__(/*! ./handlebars/helper-date */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-date.ts");
+
+__webpack_require__(/*! ./handlebars/helper-i18n */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-i18n.ts");
+
+__webpack_require__(/*! ./handlebars/helper-img */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-img.ts");
+
+__webpack_require__(/*! ./handlebars/helper-markdown */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-markdown.ts");
+
+__webpack_require__(/*! ./handlebars/helper-xsrfTokenInput */ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-xsrfTokenInput.ts");
+
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/handle-url.ts":
+/*!*****************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/handle-url.ts ***!
+  \*****************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var clonedEscapeExpression = handlebars_1["default"].Utils.escapeExpression;
+
+handlebars_1["default"].Utils.escapeExpression = function (string) {
+  return clonedEscapeExpression(string).replace(/&#x3D;/g, '=');
+};
+
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-base64.ts":
+/*!********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-base64.ts ***!
+  \********************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars")); // Display a base 64 encoded data (e.g. certificate signature) in a nicely formatted hex format.
+
+
+handlebars_1["default"].registerHelper('base64ToHex', function (base64String) {
+  var raw = atob(base64String);
+  var result = '';
+
+  if (raw.length > 0) {
+    var firstHex = raw.charCodeAt(0).toString(16);
+    result += firstHex.length === 2 ? firstHex : '0' + firstHex;
+
+    for (var i = 1; i < raw.length; i++) {
+      var hex = raw.charCodeAt(i).toString(16);
+      result += ' ' + (hex.length === 2 ? hex : '0' + hex);
+    }
+  }
+
+  return result.toUpperCase();
+});
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-date.ts":
+/*!******************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-date.ts ***!
+  \******************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0, max-params: 0, max-statements: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var moment_1 = __importDefault(__webpack_require__(/*! moment */ "./src/empty.ts"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+function formatDate(format, dateInISOString) {
+  return moment_1["default"].utc(dateInISOString).utcOffset('-07:00').format(format);
+}
+
+handlebars_1["default"].registerHelper('shortDate', underscore_wrapper_1["default"].partial(formatDate, 'MMM Do'));
+handlebars_1["default"].registerHelper('mediumDate', underscore_wrapper_1["default"].partial(formatDate, 'MMMM DD, YYYY'));
+handlebars_1["default"].registerHelper('longDate', underscore_wrapper_1["default"].partial(formatDate, 'MMMM DD, YYYY, h:mma'));
+handlebars_1["default"].registerHelper('formatDate', formatDate);
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-i18n.ts":
+/*!******************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-i18n.ts ***!
+  \******************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var Logger_1 = __importDefault(__webpack_require__(/*! ../Logger */ "../../../../../../okta/okta-ui/packages/courage/src/util/Logger.ts"));
+
+var StringUtil_1 = __importDefault(__webpack_require__(/*! ../StringUtil */ "../../../../../../okta/okta-ui/packages/courage/src/util/StringUtil.ts"));
+
+var hbsEscape = handlebars_1["default"].Utils.escapeExpression;
+
+function trim(str) {
+  return str && str.replace(/^\s+|\s+$/g, '');
+}
+
+function replaceTagsWithPlaceholders(source, tag, tagValue) {
+  var escapedBeginningTag = hbsEscape("<".concat(tag, ">"));
+  var escapedEndTag = hbsEscape("</".concat(tag, ">"));
+
+  var _a = tagValue.split(tag),
+      beginningTag = _a[0],
+      endTag = _a[1];
+
+  if (!source.includes(escapedBeginningTag) && !source.includes(escapedEndTag)) {
+    throw Error("Parsed tag \"".concat(tag, "\" is not present in \"").concat(source, "\""));
+  } else if (!tagValue.includes(tag)) {
+    throw Error("Parsed tag \"".concat(tag, "\" is not present in \"").concat(tagValue, "\""));
+  } else if (!beginningTag || !endTag) {
+    throw Error("Template value \"".concat(tagValue, "\" must contain beginning and closing tags"));
+  }
+
+  return source.replace(escapedBeginningTag, beginningTag).replace(escapedEndTag, endTag);
+}
+/* eslint max-statements: [2, 18] */
+
+
+handlebars_1["default"].registerHelper('i18n', function (options) {
+  var params;
+  var key = trim(options.hash.code);
+  var bundle = trim(options.hash.bundle);
+  var args = trim(options.hash['arguments']);
+  var tags = Object.keys(options.hash).filter(function (prop) {
+    return prop.match(/^\$\d+/);
+  }).map(function (prop) {
+    return {
+      tag: prop,
+      value: options.hash[prop]
+    };
+  });
+
+  if (args) {
+    params = underscore_wrapper_1["default"].map(trim(args).split(';'), function (param) {
+      param = trim(param);
+      var val;
+      var data = this;
+      /*
+       * the context(data) may be a deep object, ex {user: {name: 'John', gender: 'M'}}
+       * arguments may be 'user.name'
+       * return data['user']['name']
+       */
+
+      underscore_wrapper_1["default"].each(param.split('.'), function (p) {
+        val = val ? val[p] : data[p];
+      });
+      return val;
+    }, this);
+  }
+
+  var localizedValue = StringUtil_1["default"].localize(key, bundle, params);
+
+  if (tags.length < 1) {
+    // No HTML tags provided - return the localized and escaped string
+    return localizedValue;
+  }
+
+  var escapedString = hbsEscape(localizedValue);
+
+  try {
+    tags.forEach(function (tag) {
+      escapedString = replaceTagsWithPlaceholders(escapedString, tag.tag, tag.value);
+    });
+    return new handlebars_1["default"].SafeString(escapedString);
+  } catch (err) {
+    Logger_1["default"].error(err.toString());
+    return localizedValue;
+  }
+});
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-img.ts":
+/*!*****************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-img.ts ***!
+  \*****************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ../underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var CACHE_BUST_URL_PREFIX = '/assets';
+
+function prependCachebustPrefix(path) {
+  if (path.indexOf(CACHE_BUST_URL_PREFIX) === 0) {
+    return path;
+  }
+
+  return CACHE_BUST_URL_PREFIX + path;
+}
+
+handlebars_1["default"].registerHelper('img', function (options) {
+  var cdn = typeof okta !== 'undefined' && okta.cdnUrlHostname || '';
+  /*global okta */
+
+  var hash = underscore_wrapper_1["default"].pick(options.hash, ['src', 'alt', 'width', 'height', 'class', 'title']);
+  hash.src = '' + cdn + prependCachebustPrefix(hash.src);
+  var attrs = underscore_wrapper_1["default"].map(hash, function (value, attr) {
+    return attr + '="' + (attr === 'src' ? encodeURI(value) : handlebars_1["default"].Utils.escapeExpression(value)) + '"';
+  });
+  return new handlebars_1["default"].SafeString('<img ' + attrs.join(' ') + '/>');
+});
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-markdown.ts":
+/*!**********************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-markdown.ts ***!
+  \**********************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var markdownToHtml_1 = __importDefault(__webpack_require__(/*! ../markdownToHtml */ "../../../../../../okta/okta-ui/packages/courage/src/util/markdownToHtml.ts"));
+
+handlebars_1["default"].registerHelper('markdown', function (mdText) {
+  return (0, markdownToHtml_1["default"])(handlebars_1["default"], mdText);
+});
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-xsrfTokenInput.ts":
+/*!****************************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/handlebars/helper-xsrfTokenInput.ts ***!
+  \****************************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var jquery_wrapper_1 = __importDefault(__webpack_require__(/*! ../jquery-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts"));
+
+handlebars_1["default"].registerHelper('xsrfTokenInput', function () {
+  return new handlebars_1["default"].SafeString('<input type="hidden" class="hide" name="_xsrfToken" ' + 'value="' + (0, jquery_wrapper_1["default"])('#_xsrfToken').text() + '">');
+});
+exports.default = handlebars_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts":
+/*!**********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/jquery-wrapper.ts ***!
+  \**********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint-disable @okta/okta-ui/enforce-requirejs-names, @okta/okta-ui/no-specific-modules */
+
+var jquery_1 = __importDefault(__webpack_require__(/*! jquery */ "jquery"));
+
+jquery_1["default"].ajaxSetup({
+  beforeSend: function beforeSend(xhr) {
+    xhr.setRequestHeader('X-Okta-XsrfToken', (0, jquery_1["default"])('#_xsrfToken').text());
+  },
+  converters: {
+    'text secureJSON': function textSecureJSON(str) {
+      if (str.substring(0, 11) === 'while(1){};') {
+        str = str.substring(11);
+      }
+
+      return JSON.parse(str);
+    }
+  }
+}); // Selenium Hook
+// Widget such as autocomplete and autosuggest needs to be triggered from the running version of jQuery.
+// We have 2 versions of jQuery running in parallel and they don't share the same events bus
+
+window.jQueryCourage = jquery_1["default"];
+exports.default = jquery_1["default"];
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/markdownToHtml.ts":
+/*!**********************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/markdownToHtml.ts ***!
+  \**********************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true; // Simple "markdown parser" - just handles markdown formatted links. If we
+// find that we need more extensive markdown support, we should include
+// a fully formulated markdown library like:
+// https://github.com/evilstreak/markdown-js
+
+var underscore_wrapper_1 = __importDefault(__webpack_require__(/*! ./underscore-wrapper */ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts"));
+
+var RE_LINK = /\[[^\]]*\]\([^)]*\)/gi;
+var RE_LINK_HREF = /\]\(([^)]*)\)/i;
+var RE_LINK_TEXT = /\[([^\]]*)\]/i;
+var RE_LINK_JS = /javascript:/gi; // Converts links
+// FROM:
+// [some link text](http://the/link/url)
+// TO:
+// <a href="http://the/link/url">some link text</a>
+
+function mdToHtml(Handlebars, markdownText) {
+  // TODO: use precompiled templates OKTA-309852
+  // eslint-disable-next-line @okta/okta-ui/no-bare-templates
+  var linkTemplate = Handlebars.compile('<a href="{{href}}">{{text}}</a>');
+  /* eslint  @okta/okta-ui/no-specific-methods: 0*/
+
+  var res;
+
+  if (!underscore_wrapper_1["default"].isString(markdownText)) {
+    res = '';
+  } else {
+    res = Handlebars.Utils.escapeExpression(markdownText).replace(RE_LINK_JS, '').replace(RE_LINK, function (mdLink) {
+      return linkTemplate({
+        href: mdLink.match(RE_LINK_HREF)[1],
+        text: mdLink.match(RE_LINK_TEXT)[1]
+      });
+    });
+  }
+
+  return new Handlebars.SafeString(res);
+}
+
+exports.default = mdToHtml;
+module.exports = exports.default;
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts":
+/*!**************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/packages/courage/src/util/underscore-wrapper.ts ***!
+  \**************************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var __importDefault = void 0 && (void 0).__importDefault || function (mod) {
+  return mod && mod.__esModule ? mod : {
+    "default": mod
+  };
+};
+
+exports.__esModule = true;
+/* eslint @okta/okta-ui/no-specific-methods: 0, @okta/okta-ui/no-specific-modules: 0 */
+
+var handlebars_1 = __importDefault(__webpack_require__(/*! handlebars */ "handlebars"));
+
+var underscore_1 = __importDefault(__webpack_require__(/*! underscore */ "underscore"));
+
+underscore_1["default"].mixin({
+  resultCtx: function resultCtx(object, property, context, defaultValue) {
+    var value = underscore_1["default"].isObject(object) ? object[property] : void 0;
+
+    if (underscore_1["default"].isFunction(value)) {
+      value = value.call(context || object);
+    }
+
+    if (value) {
+      return value;
+    } else {
+      return !underscore_1["default"].isUndefined(defaultValue) ? defaultValue : value;
+    }
+  },
+  isInteger: function isInteger(x) {
+    return underscore_1["default"].isNumber(x) && x % 1 === 0;
+  },
+  // TODO: This will be deprecated at some point. Views should use precompiled templates
+  // eslint-disable-next-line @okta/okta-ui/no-bare-templates
+  template: function template(source, data) {
+    var template = handlebars_1["default"].compile(source);
+    return data ? template(data) : function (data) {
+      return template(data);
+    };
+  }
+});
+exports.default = underscore_1["default"];
+module.exports = exports.default;
 
 /***/ }),
 
@@ -17439,15 +17443,2114 @@ var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;//     Backbone.
 
 /***/ }),
 
-/***/ "./node_modules/clipboard/lib/clipboard-action.js":
-/*!********************************************************!*\
-  !*** ./node_modules/clipboard/lib/clipboard-action.js ***!
-  \********************************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/backbone/backbone.js":
+/*!************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/backbone/backbone.js ***!
+  \************************************************************************/
+/***/ (function(module, exports, __webpack_require__) {
+
+var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;//     Backbone.js 1.4.0
+
+//     (c) 2010-2019 Jeremy Ashkenas and DocumentCloud
+//     Backbone may be freely distributed under the MIT license.
+//     For all details and documentation:
+//     http://backbonejs.org
+
+(function(factory) {
+
+  // Establish the root object, `window` (`self`) in the browser, or `global` on the server.
+  // We use `self` instead of `window` for `WebWorker` support.
+  var root = typeof self == 'object' && self.self === self && self ||
+            typeof __webpack_require__.g == 'object' && __webpack_require__.g.global === __webpack_require__.g && __webpack_require__.g;
+
+  // Set up Backbone appropriately for the environment. Start with AMD.
+  if (true) {
+    !(__WEBPACK_AMD_DEFINE_ARRAY__ = [__webpack_require__(/*! underscore */ "underscore"), __webpack_require__(/*! jquery */ "jquery"), exports], __WEBPACK_AMD_DEFINE_RESULT__ = (function(_, $, exports) {
+      // Export global even in AMD case in case this script is loaded with
+      // others that may still expect a global Backbone.
+      root.Backbone = factory(root, exports, _, $);
+    }).apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__),
+		__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
+
+  // Next for Node.js or CommonJS. jQuery may not be needed as a module.
+  } else { var _, $; }
+
+})(function(root, Backbone, _, $) {
+
+  // Initial Setup
+  // -------------
+
+  // Save the previous value of the `Backbone` variable, so that it can be
+  // restored later on, if `noConflict` is used.
+  var previousBackbone = root.Backbone;
+
+  // Create a local reference to a common array method we'll want to use later.
+  var slice = Array.prototype.slice;
+
+  // Current version of the library. Keep in sync with `package.json`.
+  Backbone.VERSION = '1.4.0';
+
+  // For Backbone's purposes, jQuery, Zepto, Ender, or My Library (kidding) owns
+  // the `$` variable.
+  Backbone.$ = $;
+
+  // Runs Backbone.js in *noConflict* mode, returning the `Backbone` variable
+  // to its previous owner. Returns a reference to this Backbone object.
+  Backbone.noConflict = function() {
+    root.Backbone = previousBackbone;
+    return this;
+  };
+
+  // Turn on `emulateHTTP` to support legacy HTTP servers. Setting this option
+  // will fake `"PATCH"`, `"PUT"` and `"DELETE"` requests via the `_method` parameter and
+  // set a `X-Http-Method-Override` header.
+  Backbone.emulateHTTP = false;
+
+  // Turn on `emulateJSON` to support legacy servers that can't deal with direct
+  // `application/json` requests ... this will encode the body as
+  // `application/x-www-form-urlencoded` instead and will send the model in a
+  // form param named `model`.
+  Backbone.emulateJSON = false;
+
+  // Backbone.Events
+  // ---------------
+
+  // A module that can be mixed in to *any object* in order to provide it with
+  // a custom event channel. You may bind a callback to an event with `on` or
+  // remove with `off`; `trigger`-ing an event fires all callbacks in
+  // succession.
+  //
+  //     var object = {};
+  //     _.extend(object, Backbone.Events);
+  //     object.on('expand', function(){ alert('expanded'); });
+  //     object.trigger('expand');
+  //
+  var Events = Backbone.Events = {};
+
+  // Regular expression used to split event strings.
+  var eventSplitter = /\s+/;
+
+  // A private global variable to share between listeners and listenees.
+  var _listening;
+
+  // Iterates over the standard `event, callback` (as well as the fancy multiple
+  // space-separated events `"change blur", callback` and jQuery-style event
+  // maps `{event: callback}`).
+  var eventsApi = function(iteratee, events, name, callback, opts) {
+    var i = 0, names;
+    if (name && typeof name === 'object') {
+      // Handle event maps.
+      if (callback !== void 0 && 'context' in opts && opts.context === void 0) opts.context = callback;
+      for (names = _.keys(name); i < names.length ; i++) {
+        events = eventsApi(iteratee, events, names[i], name[names[i]], opts);
+      }
+    } else if (name && eventSplitter.test(name)) {
+      // Handle space-separated event names by delegating them individually.
+      for (names = name.split(eventSplitter); i < names.length; i++) {
+        events = iteratee(events, names[i], callback, opts);
+      }
+    } else {
+      // Finally, standard events.
+      events = iteratee(events, name, callback, opts);
+    }
+    return events;
+  };
+
+  // Bind an event to a `callback` function. Passing `"all"` will bind
+  // the callback to all events fired.
+  Events.on = function(name, callback, context) {
+    this._events = eventsApi(onApi, this._events || {}, name, callback, {
+      context: context,
+      ctx: this,
+      listening: _listening
+    });
+
+    if (_listening) {
+      var listeners = this._listeners || (this._listeners = {});
+      listeners[_listening.id] = _listening;
+      // Allow the listening to use a counter, instead of tracking
+      // callbacks for library interop
+      _listening.interop = false;
+    }
+
+    return this;
+  };
+
+  // Inversion-of-control versions of `on`. Tell *this* object to listen to
+  // an event in another object... keeping track of what it's listening to
+  // for easier unbinding later.
+  Events.listenTo = function(obj, name, callback) {
+    if (!obj) return this;
+    var id = obj._listenId || (obj._listenId = _.uniqueId('l'));
+    var listeningTo = this._listeningTo || (this._listeningTo = {});
+    var listening = _listening = listeningTo[id];
+
+    // This object is not listening to any other events on `obj` yet.
+    // Setup the necessary references to track the listening callbacks.
+    if (!listening) {
+      this._listenId || (this._listenId = _.uniqueId('l'));
+      listening = _listening = listeningTo[id] = new Listening(this, obj);
+    }
+
+    // Bind callbacks on obj.
+    var error = tryCatchOn(obj, name, callback, this);
+    _listening = void 0;
+
+    if (error) throw error;
+    // If the target obj is not Backbone.Events, track events manually.
+    if (listening.interop) listening.on(name, callback);
+
+    return this;
+  };
+
+  // The reducing API that adds a callback to the `events` object.
+  var onApi = function(events, name, callback, options) {
+    if (callback) {
+      var handlers = events[name] || (events[name] = []);
+      var context = options.context, ctx = options.ctx, listening = options.listening;
+      if (listening) listening.count++;
+
+      handlers.push({callback: callback, context: context, ctx: context || ctx, listening: listening});
+    }
+    return events;
+  };
+
+  // An try-catch guarded #on function, to prevent poisoning the global
+  // `_listening` variable.
+  var tryCatchOn = function(obj, name, callback, context) {
+    try {
+      obj.on(name, callback, context);
+    } catch (e) {
+      return e;
+    }
+  };
+
+  // Remove one or many callbacks. If `context` is null, removes all
+  // callbacks with that function. If `callback` is null, removes all
+  // callbacks for the event. If `name` is null, removes all bound
+  // callbacks for all events.
+  Events.off = function(name, callback, context) {
+    if (!this._events) return this;
+    this._events = eventsApi(offApi, this._events, name, callback, {
+      context: context,
+      listeners: this._listeners
+    });
+
+    return this;
+  };
+
+  // Tell this object to stop listening to either specific events ... or
+  // to every object it's currently listening to.
+  Events.stopListening = function(obj, name, callback) {
+    var listeningTo = this._listeningTo;
+    if (!listeningTo) return this;
+
+    var ids = obj ? [obj._listenId] : _.keys(listeningTo);
+    for (var i = 0; i < ids.length; i++) {
+      var listening = listeningTo[ids[i]];
+
+      // If listening doesn't exist, this object is not currently
+      // listening to obj. Break out early.
+      if (!listening) break;
+
+      listening.obj.off(name, callback, this);
+      if (listening.interop) listening.off(name, callback);
+    }
+    if (_.isEmpty(listeningTo)) this._listeningTo = void 0;
+
+    return this;
+  };
+
+  // The reducing API that removes a callback from the `events` object.
+  var offApi = function(events, name, callback, options) {
+    if (!events) return;
+
+    var context = options.context, listeners = options.listeners;
+    var i = 0, names;
+
+    // Delete all event listeners and "drop" events.
+    if (!name && !context && !callback) {
+      for (names = _.keys(listeners); i < names.length; i++) {
+        listeners[names[i]].cleanup();
+      }
+      return;
+    }
+
+    names = name ? [name] : _.keys(events);
+    for (; i < names.length; i++) {
+      name = names[i];
+      var handlers = events[name];
+
+      // Bail out if there are no events stored.
+      if (!handlers) break;
+
+      // Find any remaining events.
+      var remaining = [];
+      for (var j = 0; j < handlers.length; j++) {
+        var handler = handlers[j];
+        if (
+          callback && callback !== handler.callback &&
+            callback !== handler.callback._callback ||
+              context && context !== handler.context
+        ) {
+          remaining.push(handler);
+        } else {
+          var listening = handler.listening;
+          if (listening) listening.off(name, callback);
+        }
+      }
+
+      // Replace events if there are any remaining.  Otherwise, clean up.
+      if (remaining.length) {
+        events[name] = remaining;
+      } else {
+        delete events[name];
+      }
+    }
+
+    return events;
+  };
+
+  // Bind an event to only be triggered a single time. After the first time
+  // the callback is invoked, its listener will be removed. If multiple events
+  // are passed in using the space-separated syntax, the handler will fire
+  // once for each event, not once for a combination of all events.
+  Events.once = function(name, callback, context) {
+    // Map the event into a `{event: once}` object.
+    var events = eventsApi(onceMap, {}, name, callback, this.off.bind(this));
+    if (typeof name === 'string' && context == null) callback = void 0;
+    return this.on(events, callback, context);
+  };
+
+  // Inversion-of-control versions of `once`.
+  Events.listenToOnce = function(obj, name, callback) {
+    // Map the event into a `{event: once}` object.
+    var events = eventsApi(onceMap, {}, name, callback, this.stopListening.bind(this, obj));
+    return this.listenTo(obj, events);
+  };
+
+  // Reduces the event callbacks into a map of `{event: onceWrapper}`.
+  // `offer` unbinds the `onceWrapper` after it has been called.
+  var onceMap = function(map, name, callback, offer) {
+    if (callback) {
+      var once = map[name] = _.once(function() {
+        offer(name, once);
+        callback.apply(this, arguments);
+      });
+      once._callback = callback;
+    }
+    return map;
+  };
+
+  // Trigger one or many events, firing all bound callbacks. Callbacks are
+  // passed the same arguments as `trigger` is, apart from the event name
+  // (unless you're listening on `"all"`, which will cause your callback to
+  // receive the true name of the event as the first argument).
+  Events.trigger = function(name) {
+    if (!this._events) return this;
+
+    var length = Math.max(0, arguments.length - 1);
+    var args = Array(length);
+    for (var i = 0; i < length; i++) args[i] = arguments[i + 1];
+
+    eventsApi(triggerApi, this._events, name, void 0, args);
+    return this;
+  };
+
+  // Handles triggering the appropriate event callbacks.
+  var triggerApi = function(objEvents, name, callback, args) {
+    if (objEvents) {
+      var events = objEvents[name];
+      var allEvents = objEvents.all;
+      if (events && allEvents) allEvents = allEvents.slice();
+      if (events) triggerEvents(events, args);
+      if (allEvents) triggerEvents(allEvents, [name].concat(args));
+    }
+    return objEvents;
+  };
+
+  // A difficult-to-believe, but optimized internal dispatch function for
+  // triggering events. Tries to keep the usual cases speedy (most internal
+  // Backbone events have 3 arguments).
+  var triggerEvents = function(events, args) {
+    var ev, i = -1, l = events.length, a1 = args[0], a2 = args[1], a3 = args[2];
+    switch (args.length) {
+      case 0: while (++i < l) (ev = events[i]).callback.call(ev.ctx); return;
+      case 1: while (++i < l) (ev = events[i]).callback.call(ev.ctx, a1); return;
+      case 2: while (++i < l) (ev = events[i]).callback.call(ev.ctx, a1, a2); return;
+      case 3: while (++i < l) (ev = events[i]).callback.call(ev.ctx, a1, a2, a3); return;
+      default: while (++i < l) (ev = events[i]).callback.apply(ev.ctx, args); return;
+    }
+  };
+
+  // A listening class that tracks and cleans up memory bindings
+  // when all callbacks have been offed.
+  var Listening = function(listener, obj) {
+    this.id = listener._listenId;
+    this.listener = listener;
+    this.obj = obj;
+    this.interop = true;
+    this.count = 0;
+    this._events = void 0;
+  };
+
+  Listening.prototype.on = Events.on;
+
+  // Offs a callback (or several).
+  // Uses an optimized counter if the listenee uses Backbone.Events.
+  // Otherwise, falls back to manual tracking to support events
+  // library interop.
+  Listening.prototype.off = function(name, callback) {
+    var cleanup;
+    if (this.interop) {
+      this._events = eventsApi(offApi, this._events, name, callback, {
+        context: void 0,
+        listeners: void 0
+      });
+      cleanup = !this._events;
+    } else {
+      this.count--;
+      cleanup = this.count === 0;
+    }
+    if (cleanup) this.cleanup();
+  };
+
+  // Cleans up memory bindings between the listener and the listenee.
+  Listening.prototype.cleanup = function() {
+    delete this.listener._listeningTo[this.obj._listenId];
+    if (!this.interop) delete this.obj._listeners[this.id];
+  };
+
+  // Aliases for backwards compatibility.
+  Events.bind   = Events.on;
+  Events.unbind = Events.off;
+
+  // Allow the `Backbone` object to serve as a global event bus, for folks who
+  // want global "pubsub" in a convenient place.
+  _.extend(Backbone, Events);
+
+  // Backbone.Model
+  // --------------
+
+  // Backbone **Models** are the basic data object in the framework --
+  // frequently representing a row in a table in a database on your server.
+  // A discrete chunk of data and a bunch of useful, related methods for
+  // performing computations and transformations on that data.
+
+  // Create a new model with the specified attributes. A client id (`cid`)
+  // is automatically generated and assigned for you.
+  var Model = Backbone.Model = function(attributes, options) {
+    var attrs = attributes || {};
+    options || (options = {});
+    this.preinitialize.apply(this, arguments);
+    this.cid = _.uniqueId(this.cidPrefix);
+    this.attributes = {};
+    if (options.collection) this.collection = options.collection;
+    if (options.parse) attrs = this.parse(attrs, options) || {};
+    var defaults = _.result(this, 'defaults');
+    attrs = _.defaults(_.extend({}, defaults, attrs), defaults);
+    this.set(attrs, options);
+    this.changed = {};
+    this.initialize.apply(this, arguments);
+  };
+
+  // Attach all inheritable methods to the Model prototype.
+  _.extend(Model.prototype, Events, {
+
+    // A hash of attributes whose current and previous value differ.
+    changed: null,
+
+    // The value returned during the last failed validation.
+    validationError: null,
+
+    // The default name for the JSON `id` attribute is `"id"`. MongoDB and
+    // CouchDB users may want to set this to `"_id"`.
+    idAttribute: 'id',
+
+    // The prefix is used to create the client id which is used to identify models locally.
+    // You may want to override this if you're experiencing name clashes with model ids.
+    cidPrefix: 'c',
+
+    // preinitialize is an empty function by default. You can override it with a function
+    // or object.  preinitialize will run before any instantiation logic is run in the Model.
+    preinitialize: function(){},
+
+    // Initialize is an empty function by default. Override it with your own
+    // initialization logic.
+    initialize: function(){},
+
+    // Return a copy of the model's `attributes` object.
+    toJSON: function(options) {
+      return _.clone(this.attributes);
+    },
+
+    // Proxy `Backbone.sync` by default -- but override this if you need
+    // custom syncing semantics for *this* particular model.
+    sync: function() {
+      return Backbone.sync.apply(this, arguments);
+    },
+
+    // Get the value of an attribute.
+    get: function(attr) {
+      return this.attributes[attr];
+    },
+
+    // Get the HTML-escaped value of an attribute.
+    escape: function(attr) {
+      return _.escape(this.get(attr));
+    },
+
+    // Returns `true` if the attribute contains a value that is not null
+    // or undefined.
+    has: function(attr) {
+      return this.get(attr) != null;
+    },
+
+    // Special-cased proxy to underscore's `_.matches` method.
+    matches: function(attrs) {
+      return !!_.iteratee(attrs, this)(this.attributes);
+    },
+
+    // Set a hash of model attributes on the object, firing `"change"`. This is
+    // the core primitive operation of a model, updating the data and notifying
+    // anyone who needs to know about the change in state. The heart of the beast.
+    set: function(key, val, options) {
+      if (key == null) return this;
+
+      // Handle both `"key", value` and `{key: value}` -style arguments.
+      var attrs;
+      if (typeof key === 'object') {
+        attrs = key;
+        options = val;
+      } else {
+        (attrs = {})[key] = val;
+      }
+
+      options || (options = {});
+
+      // Run validation.
+      if (!this._validate(attrs, options)) return false;
+
+      // Extract attributes and options.
+      var unset      = options.unset;
+      var silent     = options.silent;
+      var changes    = [];
+      var changing   = this._changing;
+      this._changing = true;
+
+      if (!changing) {
+        this._previousAttributes = _.clone(this.attributes);
+        this.changed = {};
+      }
+
+      var current = this.attributes;
+      var changed = this.changed;
+      var prev    = this._previousAttributes;
+
+      // For each `set` attribute, update or delete the current value.
+      for (var attr in attrs) {
+        val = attrs[attr];
+        if (!_.isEqual(current[attr], val)) changes.push(attr);
+        if (!_.isEqual(prev[attr], val)) {
+          changed[attr] = val;
+        } else {
+          delete changed[attr];
+        }
+        unset ? delete current[attr] : current[attr] = val;
+      }
+
+      // Update the `id`.
+      if (this.idAttribute in attrs) this.id = this.get(this.idAttribute);
+
+      // Trigger all relevant attribute changes.
+      if (!silent) {
+        if (changes.length) this._pending = options;
+        for (var i = 0; i < changes.length; i++) {
+          this.trigger('change:' + changes[i], this, current[changes[i]], options);
+        }
+      }
+
+      // You might be wondering why there's a `while` loop here. Changes can
+      // be recursively nested within `"change"` events.
+      if (changing) return this;
+      if (!silent) {
+        while (this._pending) {
+          options = this._pending;
+          this._pending = false;
+          this.trigger('change', this, options);
+        }
+      }
+      this._pending = false;
+      this._changing = false;
+      return this;
+    },
+
+    // Remove an attribute from the model, firing `"change"`. `unset` is a noop
+    // if the attribute doesn't exist.
+    unset: function(attr, options) {
+      return this.set(attr, void 0, _.extend({}, options, {unset: true}));
+    },
+
+    // Clear all attributes on the model, firing `"change"`.
+    clear: function(options) {
+      var attrs = {};
+      for (var key in this.attributes) attrs[key] = void 0;
+      return this.set(attrs, _.extend({}, options, {unset: true}));
+    },
+
+    // Determine if the model has changed since the last `"change"` event.
+    // If you specify an attribute name, determine if that attribute has changed.
+    hasChanged: function(attr) {
+      if (attr == null) return !_.isEmpty(this.changed);
+      return _.has(this.changed, attr);
+    },
+
+    // Return an object containing all the attributes that have changed, or
+    // false if there are no changed attributes. Useful for determining what
+    // parts of a view need to be updated and/or what attributes need to be
+    // persisted to the server. Unset attributes will be set to undefined.
+    // You can also pass an attributes object to diff against the model,
+    // determining if there *would be* a change.
+    changedAttributes: function(diff) {
+      if (!diff) return this.hasChanged() ? _.clone(this.changed) : false;
+      var old = this._changing ? this._previousAttributes : this.attributes;
+      var changed = {};
+      var hasChanged;
+      for (var attr in diff) {
+        var val = diff[attr];
+        if (_.isEqual(old[attr], val)) continue;
+        changed[attr] = val;
+        hasChanged = true;
+      }
+      return hasChanged ? changed : false;
+    },
+
+    // Get the previous value of an attribute, recorded at the time the last
+    // `"change"` event was fired.
+    previous: function(attr) {
+      if (attr == null || !this._previousAttributes) return null;
+      return this._previousAttributes[attr];
+    },
+
+    // Get all of the attributes of the model at the time of the previous
+    // `"change"` event.
+    previousAttributes: function() {
+      return _.clone(this._previousAttributes);
+    },
+
+    // Fetch the model from the server, merging the response with the model's
+    // local attributes. Any changed attributes will trigger a "change" event.
+    fetch: function(options) {
+      options = _.extend({parse: true}, options);
+      var model = this;
+      var success = options.success;
+      options.success = function(resp) {
+        var serverAttrs = options.parse ? model.parse(resp, options) : resp;
+        if (!model.set(serverAttrs, options)) return false;
+        if (success) success.call(options.context, model, resp, options);
+        model.trigger('sync', model, resp, options);
+      };
+      wrapError(this, options);
+      return this.sync('read', this, options);
+    },
+
+    // Set a hash of model attributes, and sync the model to the server.
+    // If the server returns an attributes hash that differs, the model's
+    // state will be `set` again.
+    save: function(key, val, options) {
+      // Handle both `"key", value` and `{key: value}` -style arguments.
+      var attrs;
+      if (key == null || typeof key === 'object') {
+        attrs = key;
+        options = val;
+      } else {
+        (attrs = {})[key] = val;
+      }
+
+      options = _.extend({validate: true, parse: true}, options);
+      var wait = options.wait;
+
+      // If we're not waiting and attributes exist, save acts as
+      // `set(attr).save(null, opts)` with validation. Otherwise, check if
+      // the model will be valid when the attributes, if any, are set.
+      if (attrs && !wait) {
+        if (!this.set(attrs, options)) return false;
+      } else if (!this._validate(attrs, options)) {
+        return false;
+      }
+
+      // After a successful server-side save, the client is (optionally)
+      // updated with the server-side state.
+      var model = this;
+      var success = options.success;
+      var attributes = this.attributes;
+      options.success = function(resp) {
+        // Ensure attributes are restored during synchronous saves.
+        model.attributes = attributes;
+        var serverAttrs = options.parse ? model.parse(resp, options) : resp;
+        if (wait) serverAttrs = _.extend({}, attrs, serverAttrs);
+        if (serverAttrs && !model.set(serverAttrs, options)) return false;
+        if (success) success.call(options.context, model, resp, options);
+        model.trigger('sync', model, resp, options);
+      };
+      wrapError(this, options);
+
+      // Set temporary attributes if `{wait: true}` to properly find new ids.
+      if (attrs && wait) this.attributes = _.extend({}, attributes, attrs);
+
+      var method = this.isNew() ? 'create' : options.patch ? 'patch' : 'update';
+      if (method === 'patch' && !options.attrs) options.attrs = attrs;
+      var xhr = this.sync(method, this, options);
+
+      // Restore attributes.
+      this.attributes = attributes;
+
+      return xhr;
+    },
+
+    // Destroy this model on the server if it was already persisted.
+    // Optimistically removes the model from its collection, if it has one.
+    // If `wait: true` is passed, waits for the server to respond before removal.
+    destroy: function(options) {
+      options = options ? _.clone(options) : {};
+      var model = this;
+      var success = options.success;
+      var wait = options.wait;
+
+      var destroy = function() {
+        model.stopListening();
+        model.trigger('destroy', model, model.collection, options);
+      };
+
+      options.success = function(resp) {
+        if (wait) destroy();
+        if (success) success.call(options.context, model, resp, options);
+        if (!model.isNew()) model.trigger('sync', model, resp, options);
+      };
+
+      var xhr = false;
+      if (this.isNew()) {
+        _.defer(options.success);
+      } else {
+        wrapError(this, options);
+        xhr = this.sync('delete', this, options);
+      }
+      if (!wait) destroy();
+      return xhr;
+    },
+
+    // Default URL for the model's representation on the server -- if you're
+    // using Backbone's restful methods, override this to change the endpoint
+    // that will be called.
+    url: function() {
+      var base =
+        _.result(this, 'urlRoot') ||
+        _.result(this.collection, 'url') ||
+        urlError();
+      if (this.isNew()) return base;
+      var id = this.get(this.idAttribute);
+      return base.replace(/[^\/]$/, '$&/') + encodeURIComponent(id);
+    },
+
+    // **parse** converts a response into the hash of attributes to be `set` on
+    // the model. The default implementation is just to pass the response along.
+    parse: function(resp, options) {
+      return resp;
+    },
+
+    // Create a new model with identical attributes to this one.
+    clone: function() {
+      return new this.constructor(this.attributes);
+    },
+
+    // A model is new if it has never been saved to the server, and lacks an id.
+    isNew: function() {
+      return !this.has(this.idAttribute);
+    },
+
+    // Check if the model is currently in a valid state.
+    isValid: function(options) {
+      return this._validate({}, _.extend({}, options, {validate: true}));
+    },
+
+    // Run validation against the next complete set of model attributes,
+    // returning `true` if all is well. Otherwise, fire an `"invalid"` event.
+    _validate: function(attrs, options) {
+      if (!options.validate || !this.validate) return true;
+      attrs = _.extend({}, this.attributes, attrs);
+      var error = this.validationError = this.validate(attrs, options) || null;
+      if (!error) return true;
+      this.trigger('invalid', this, error, _.extend(options, {validationError: error}));
+      return false;
+    }
+
+  });
+
+  // Backbone.Collection
+  // -------------------
+
+  // If models tend to represent a single row of data, a Backbone Collection is
+  // more analogous to a table full of data ... or a small slice or page of that
+  // table, or a collection of rows that belong together for a particular reason
+  // -- all of the messages in this particular folder, all of the documents
+  // belonging to this particular author, and so on. Collections maintain
+  // indexes of their models, both in order, and for lookup by `id`.
+
+  // Create a new **Collection**, perhaps to contain a specific type of `model`.
+  // If a `comparator` is specified, the Collection will maintain
+  // its models in sort order, as they're added and removed.
+  var Collection = Backbone.Collection = function(models, options) {
+    options || (options = {});
+    this.preinitialize.apply(this, arguments);
+    if (options.model) this.model = options.model;
+    if (options.comparator !== void 0) this.comparator = options.comparator;
+    this._reset();
+    this.initialize.apply(this, arguments);
+    if (models) this.reset(models, _.extend({silent: true}, options));
+  };
+
+  // Default options for `Collection#set`.
+  var setOptions = {add: true, remove: true, merge: true};
+  var addOptions = {add: true, remove: false};
+
+  // Splices `insert` into `array` at index `at`.
+  var splice = function(array, insert, at) {
+    at = Math.min(Math.max(at, 0), array.length);
+    var tail = Array(array.length - at);
+    var length = insert.length;
+    var i;
+    for (i = 0; i < tail.length; i++) tail[i] = array[i + at];
+    for (i = 0; i < length; i++) array[i + at] = insert[i];
+    for (i = 0; i < tail.length; i++) array[i + length + at] = tail[i];
+  };
+
+  // Define the Collection's inheritable methods.
+  _.extend(Collection.prototype, Events, {
+
+    // The default model for a collection is just a **Backbone.Model**.
+    // This should be overridden in most cases.
+    model: Model,
+
+
+    // preinitialize is an empty function by default. You can override it with a function
+    // or object.  preinitialize will run before any instantiation logic is run in the Collection.
+    preinitialize: function(){},
+
+    // Initialize is an empty function by default. Override it with your own
+    // initialization logic.
+    initialize: function(){},
+
+    // The JSON representation of a Collection is an array of the
+    // models' attributes.
+    toJSON: function(options) {
+      return this.map(function(model) { return model.toJSON(options); });
+    },
+
+    // Proxy `Backbone.sync` by default.
+    sync: function() {
+      return Backbone.sync.apply(this, arguments);
+    },
+
+    // Add a model, or list of models to the set. `models` may be Backbone
+    // Models or raw JavaScript objects to be converted to Models, or any
+    // combination of the two.
+    add: function(models, options) {
+      return this.set(models, _.extend({merge: false}, options, addOptions));
+    },
+
+    // Remove a model, or a list of models from the set.
+    remove: function(models, options) {
+      options = _.extend({}, options);
+      var singular = !_.isArray(models);
+      models = singular ? [models] : models.slice();
+      var removed = this._removeModels(models, options);
+      if (!options.silent && removed.length) {
+        options.changes = {added: [], merged: [], removed: removed};
+        this.trigger('update', this, options);
+      }
+      return singular ? removed[0] : removed;
+    },
+
+    // Update a collection by `set`-ing a new list of models, adding new ones,
+    // removing models that are no longer present, and merging models that
+    // already exist in the collection, as necessary. Similar to **Model#set**,
+    // the core operation for updating the data contained by the collection.
+    set: function(models, options) {
+      if (models == null) return;
+
+      options = _.extend({}, setOptions, options);
+      if (options.parse && !this._isModel(models)) {
+        models = this.parse(models, options) || [];
+      }
+
+      var singular = !_.isArray(models);
+      models = singular ? [models] : models.slice();
+
+      var at = options.at;
+      if (at != null) at = +at;
+      if (at > this.length) at = this.length;
+      if (at < 0) at += this.length + 1;
+
+      var set = [];
+      var toAdd = [];
+      var toMerge = [];
+      var toRemove = [];
+      var modelMap = {};
+
+      var add = options.add;
+      var merge = options.merge;
+      var remove = options.remove;
+
+      var sort = false;
+      var sortable = this.comparator && at == null && options.sort !== false;
+      var sortAttr = _.isString(this.comparator) ? this.comparator : null;
+
+      // Turn bare objects into model references, and prevent invalid models
+      // from being added.
+      var model, i;
+      for (i = 0; i < models.length; i++) {
+        model = models[i];
+
+        // If a duplicate is found, prevent it from being added and
+        // optionally merge it into the existing model.
+        var existing = this.get(model);
+        if (existing) {
+          if (merge && model !== existing) {
+            var attrs = this._isModel(model) ? model.attributes : model;
+            if (options.parse) attrs = existing.parse(attrs, options);
+            existing.set(attrs, options);
+            toMerge.push(existing);
+            if (sortable && !sort) sort = existing.hasChanged(sortAttr);
+          }
+          if (!modelMap[existing.cid]) {
+            modelMap[existing.cid] = true;
+            set.push(existing);
+          }
+          models[i] = existing;
+
+        // If this is a new, valid model, push it to the `toAdd` list.
+        } else if (add) {
+          model = models[i] = this._prepareModel(model, options);
+          if (model) {
+            toAdd.push(model);
+            this._addReference(model, options);
+            modelMap[model.cid] = true;
+            set.push(model);
+          }
+        }
+      }
+
+      // Remove stale models.
+      if (remove) {
+        for (i = 0; i < this.length; i++) {
+          model = this.models[i];
+          if (!modelMap[model.cid]) toRemove.push(model);
+        }
+        if (toRemove.length) this._removeModels(toRemove, options);
+      }
+
+      // See if sorting is needed, update `length` and splice in new models.
+      var orderChanged = false;
+      var replace = !sortable && add && remove;
+      if (set.length && replace) {
+        orderChanged = this.length !== set.length || _.some(this.models, function(m, index) {
+          return m !== set[index];
+        });
+        this.models.length = 0;
+        splice(this.models, set, 0);
+        this.length = this.models.length;
+      } else if (toAdd.length) {
+        if (sortable) sort = true;
+        splice(this.models, toAdd, at == null ? this.length : at);
+        this.length = this.models.length;
+      }
+
+      // Silently sort the collection if appropriate.
+      if (sort) this.sort({silent: true});
+
+      // Unless silenced, it's time to fire all appropriate add/sort/update events.
+      if (!options.silent) {
+        for (i = 0; i < toAdd.length; i++) {
+          if (at != null) options.index = at + i;
+          model = toAdd[i];
+          model.trigger('add', model, this, options);
+        }
+        if (sort || orderChanged) this.trigger('sort', this, options);
+        if (toAdd.length || toRemove.length || toMerge.length) {
+          options.changes = {
+            added: toAdd,
+            removed: toRemove,
+            merged: toMerge
+          };
+          this.trigger('update', this, options);
+        }
+      }
+
+      // Return the added (or merged) model (or models).
+      return singular ? models[0] : models;
+    },
+
+    // When you have more items than you want to add or remove individually,
+    // you can reset the entire set with a new list of models, without firing
+    // any granular `add` or `remove` events. Fires `reset` when finished.
+    // Useful for bulk operations and optimizations.
+    reset: function(models, options) {
+      options = options ? _.clone(options) : {};
+      for (var i = 0; i < this.models.length; i++) {
+        this._removeReference(this.models[i], options);
+      }
+      options.previousModels = this.models;
+      this._reset();
+      models = this.add(models, _.extend({silent: true}, options));
+      if (!options.silent) this.trigger('reset', this, options);
+      return models;
+    },
+
+    // Add a model to the end of the collection.
+    push: function(model, options) {
+      return this.add(model, _.extend({at: this.length}, options));
+    },
+
+    // Remove a model from the end of the collection.
+    pop: function(options) {
+      var model = this.at(this.length - 1);
+      return this.remove(model, options);
+    },
+
+    // Add a model to the beginning of the collection.
+    unshift: function(model, options) {
+      return this.add(model, _.extend({at: 0}, options));
+    },
+
+    // Remove a model from the beginning of the collection.
+    shift: function(options) {
+      var model = this.at(0);
+      return this.remove(model, options);
+    },
+
+    // Slice out a sub-array of models from the collection.
+    slice: function() {
+      return slice.apply(this.models, arguments);
+    },
+
+    // Get a model from the set by id, cid, model object with id or cid
+    // properties, or an attributes object that is transformed through modelId.
+    get: function(obj) {
+      if (obj == null) return void 0;
+      return this._byId[obj] ||
+        this._byId[this.modelId(this._isModel(obj) ? obj.attributes : obj)] ||
+        obj.cid && this._byId[obj.cid];
+    },
+
+    // Returns `true` if the model is in the collection.
+    has: function(obj) {
+      return this.get(obj) != null;
+    },
+
+    // Get the model at the given index.
+    at: function(index) {
+      if (index < 0) index += this.length;
+      return this.models[index];
+    },
+
+    // Return models with matching attributes. Useful for simple cases of
+    // `filter`.
+    where: function(attrs, first) {
+      return this[first ? 'find' : 'filter'](attrs);
+    },
+
+    // Return the first model with matching attributes. Useful for simple cases
+    // of `find`.
+    findWhere: function(attrs) {
+      return this.where(attrs, true);
+    },
+
+    // Force the collection to re-sort itself. You don't need to call this under
+    // normal circumstances, as the set will maintain sort order as each item
+    // is added.
+    sort: function(options) {
+      var comparator = this.comparator;
+      if (!comparator) throw new Error('Cannot sort a set without a comparator');
+      options || (options = {});
+
+      var length = comparator.length;
+      if (_.isFunction(comparator)) comparator = comparator.bind(this);
+
+      // Run sort based on type of `comparator`.
+      if (length === 1 || _.isString(comparator)) {
+        this.models = this.sortBy(comparator);
+      } else {
+        this.models.sort(comparator);
+      }
+      if (!options.silent) this.trigger('sort', this, options);
+      return this;
+    },
+
+    // Pluck an attribute from each model in the collection.
+    pluck: function(attr) {
+      return this.map(attr + '');
+    },
+
+    // Fetch the default set of models for this collection, resetting the
+    // collection when they arrive. If `reset: true` is passed, the response
+    // data will be passed through the `reset` method instead of `set`.
+    fetch: function(options) {
+      options = _.extend({parse: true}, options);
+      var success = options.success;
+      var collection = this;
+      options.success = function(resp) {
+        var method = options.reset ? 'reset' : 'set';
+        collection[method](resp, options);
+        if (success) success.call(options.context, collection, resp, options);
+        collection.trigger('sync', collection, resp, options);
+      };
+      wrapError(this, options);
+      return this.sync('read', this, options);
+    },
+
+    // Create a new instance of a model in this collection. Add the model to the
+    // collection immediately, unless `wait: true` is passed, in which case we
+    // wait for the server to agree.
+    create: function(model, options) {
+      options = options ? _.clone(options) : {};
+      var wait = options.wait;
+      model = this._prepareModel(model, options);
+      if (!model) return false;
+      if (!wait) this.add(model, options);
+      var collection = this;
+      var success = options.success;
+      options.success = function(m, resp, callbackOpts) {
+        if (wait) collection.add(m, callbackOpts);
+        if (success) success.call(callbackOpts.context, m, resp, callbackOpts);
+      };
+      model.save(null, options);
+      return model;
+    },
+
+    // **parse** converts a response into a list of models to be added to the
+    // collection. The default implementation is just to pass it through.
+    parse: function(resp, options) {
+      return resp;
+    },
+
+    // Create a new collection with an identical list of models as this one.
+    clone: function() {
+      return new this.constructor(this.models, {
+        model: this.model,
+        comparator: this.comparator
+      });
+    },
+
+    // Define how to uniquely identify models in the collection.
+    modelId: function(attrs) {
+      return attrs[this.model.prototype.idAttribute || 'id'];
+    },
+
+    // Get an iterator of all models in this collection.
+    values: function() {
+      return new CollectionIterator(this, ITERATOR_VALUES);
+    },
+
+    // Get an iterator of all model IDs in this collection.
+    keys: function() {
+      return new CollectionIterator(this, ITERATOR_KEYS);
+    },
+
+    // Get an iterator of all [ID, model] tuples in this collection.
+    entries: function() {
+      return new CollectionIterator(this, ITERATOR_KEYSVALUES);
+    },
+
+    // Private method to reset all internal state. Called when the collection
+    // is first initialized or reset.
+    _reset: function() {
+      this.length = 0;
+      this.models = [];
+      this._byId  = {};
+    },
+
+    // Prepare a hash of attributes (or other model) to be added to this
+    // collection.
+    _prepareModel: function(attrs, options) {
+      if (this._isModel(attrs)) {
+        if (!attrs.collection) attrs.collection = this;
+        return attrs;
+      }
+      options = options ? _.clone(options) : {};
+      options.collection = this;
+      var model = new this.model(attrs, options);
+      if (!model.validationError) return model;
+      this.trigger('invalid', this, model.validationError, options);
+      return false;
+    },
+
+    // Internal method called by both remove and set.
+    _removeModels: function(models, options) {
+      var removed = [];
+      for (var i = 0; i < models.length; i++) {
+        var model = this.get(models[i]);
+        if (!model) continue;
+
+        var index = this.indexOf(model);
+        this.models.splice(index, 1);
+        this.length--;
+
+        // Remove references before triggering 'remove' event to prevent an
+        // infinite loop. #3693
+        delete this._byId[model.cid];
+        var id = this.modelId(model.attributes);
+        if (id != null) delete this._byId[id];
+
+        if (!options.silent) {
+          options.index = index;
+          model.trigger('remove', model, this, options);
+        }
+
+        removed.push(model);
+        this._removeReference(model, options);
+      }
+      return removed;
+    },
+
+    // Method for checking whether an object should be considered a model for
+    // the purposes of adding to the collection.
+    _isModel: function(model) {
+      return model instanceof Model;
+    },
+
+    // Internal method to create a model's ties to a collection.
+    _addReference: function(model, options) {
+      this._byId[model.cid] = model;
+      var id = this.modelId(model.attributes);
+      if (id != null) this._byId[id] = model;
+      model.on('all', this._onModelEvent, this);
+    },
+
+    // Internal method to sever a model's ties to a collection.
+    _removeReference: function(model, options) {
+      delete this._byId[model.cid];
+      var id = this.modelId(model.attributes);
+      if (id != null) delete this._byId[id];
+      if (this === model.collection) delete model.collection;
+      model.off('all', this._onModelEvent, this);
+    },
+
+    // Internal method called every time a model in the set fires an event.
+    // Sets need to update their indexes when models change ids. All other
+    // events simply proxy through. "add" and "remove" events that originate
+    // in other collections are ignored.
+    _onModelEvent: function(event, model, collection, options) {
+      if (model) {
+        if ((event === 'add' || event === 'remove') && collection !== this) return;
+        if (event === 'destroy') this.remove(model, options);
+        if (event === 'change') {
+          var prevId = this.modelId(model.previousAttributes());
+          var id = this.modelId(model.attributes);
+          if (prevId !== id) {
+            if (prevId != null) delete this._byId[prevId];
+            if (id != null) this._byId[id] = model;
+          }
+        }
+      }
+      this.trigger.apply(this, arguments);
+    }
+
+  });
+
+  // Defining an @@iterator method implements JavaScript's Iterable protocol.
+  // In modern ES2015 browsers, this value is found at Symbol.iterator.
+  /* global Symbol */
+  var $$iterator = typeof Symbol === 'function' && Symbol.iterator;
+  if ($$iterator) {
+    Collection.prototype[$$iterator] = Collection.prototype.values;
+  }
+
+  // CollectionIterator
+  // ------------------
+
+  // A CollectionIterator implements JavaScript's Iterator protocol, allowing the
+  // use of `for of` loops in modern browsers and interoperation between
+  // Backbone.Collection and other JavaScript functions and third-party libraries
+  // which can operate on Iterables.
+  var CollectionIterator = function(collection, kind) {
+    this._collection = collection;
+    this._kind = kind;
+    this._index = 0;
+  };
+
+  // This "enum" defines the three possible kinds of values which can be emitted
+  // by a CollectionIterator that correspond to the values(), keys() and entries()
+  // methods on Collection, respectively.
+  var ITERATOR_VALUES = 1;
+  var ITERATOR_KEYS = 2;
+  var ITERATOR_KEYSVALUES = 3;
+
+  // All Iterators should themselves be Iterable.
+  if ($$iterator) {
+    CollectionIterator.prototype[$$iterator] = function() {
+      return this;
+    };
+  }
+
+  CollectionIterator.prototype.next = function() {
+    if (this._collection) {
+
+      // Only continue iterating if the iterated collection is long enough.
+      if (this._index < this._collection.length) {
+        var model = this._collection.at(this._index);
+        this._index++;
+
+        // Construct a value depending on what kind of values should be iterated.
+        var value;
+        if (this._kind === ITERATOR_VALUES) {
+          value = model;
+        } else {
+          var id = this._collection.modelId(model.attributes);
+          if (this._kind === ITERATOR_KEYS) {
+            value = id;
+          } else { // ITERATOR_KEYSVALUES
+            value = [id, model];
+          }
+        }
+        return {value: value, done: false};
+      }
+
+      // Once exhausted, remove the reference to the collection so future
+      // calls to the next method always return done.
+      this._collection = void 0;
+    }
+
+    return {value: void 0, done: true};
+  };
+
+  // Backbone.View
+  // -------------
+
+  // Backbone Views are almost more convention than they are actual code. A View
+  // is simply a JavaScript object that represents a logical chunk of UI in the
+  // DOM. This might be a single item, an entire list, a sidebar or panel, or
+  // even the surrounding frame which wraps your whole app. Defining a chunk of
+  // UI as a **View** allows you to define your DOM events declaratively, without
+  // having to worry about render order ... and makes it easy for the view to
+  // react to specific changes in the state of your models.
+
+  // Creating a Backbone.View creates its initial element outside of the DOM,
+  // if an existing element is not provided...
+  var View = Backbone.View = function(options) {
+    this.cid = _.uniqueId('view');
+    this.preinitialize.apply(this, arguments);
+    _.extend(this, _.pick(options, viewOptions));
+    this._ensureElement();
+    this.initialize.apply(this, arguments);
+  };
+
+  // Cached regex to split keys for `delegate`.
+  var delegateEventSplitter = /^(\S+)\s*(.*)$/;
+
+  // List of view options to be set as properties.
+  var viewOptions = ['model', 'collection', 'el', 'id', 'attributes', 'className', 'tagName', 'events'];
+
+  // Set up all inheritable **Backbone.View** properties and methods.
+  _.extend(View.prototype, Events, {
+
+    // The default `tagName` of a View's element is `"div"`.
+    tagName: 'div',
+
+    // jQuery delegate for element lookup, scoped to DOM elements within the
+    // current view. This should be preferred to global lookups where possible.
+    $: function(selector) {
+      return this.$el.find(selector);
+    },
+
+    // preinitialize is an empty function by default. You can override it with a function
+    // or object.  preinitialize will run before any instantiation logic is run in the View
+    preinitialize: function(){},
+
+    // Initialize is an empty function by default. Override it with your own
+    // initialization logic.
+    initialize: function(){},
+
+    // **render** is the core function that your view should override, in order
+    // to populate its element (`this.el`), with the appropriate HTML. The
+    // convention is for **render** to always return `this`.
+    render: function() {
+      return this;
+    },
+
+    // Remove this view by taking the element out of the DOM, and removing any
+    // applicable Backbone.Events listeners.
+    remove: function() {
+      this._removeElement();
+      this.stopListening();
+      return this;
+    },
+
+    // Remove this view's element from the document and all event listeners
+    // attached to it. Exposed for subclasses using an alternative DOM
+    // manipulation API.
+    _removeElement: function() {
+      this.$el.remove();
+    },
+
+    // Change the view's element (`this.el` property) and re-delegate the
+    // view's events on the new element.
+    setElement: function(element) {
+      this.undelegateEvents();
+      this._setElement(element);
+      this.delegateEvents();
+      return this;
+    },
+
+    // Creates the `this.el` and `this.$el` references for this view using the
+    // given `el`. `el` can be a CSS selector or an HTML string, a jQuery
+    // context or an element. Subclasses can override this to utilize an
+    // alternative DOM manipulation API and are only required to set the
+    // `this.el` property.
+    _setElement: function(el) {
+      this.$el = el instanceof Backbone.$ ? el : Backbone.$(el);
+      this.el = this.$el[0];
+    },
+
+    // Set callbacks, where `this.events` is a hash of
+    //
+    // *{"event selector": "callback"}*
+    //
+    //     {
+    //       'mousedown .title':  'edit',
+    //       'click .button':     'save',
+    //       'click .open':       function(e) { ... }
+    //     }
+    //
+    // pairs. Callbacks will be bound to the view, with `this` set properly.
+    // Uses event delegation for efficiency.
+    // Omitting the selector binds the event to `this.el`.
+    delegateEvents: function(events) {
+      events || (events = _.result(this, 'events'));
+      if (!events) return this;
+      this.undelegateEvents();
+      for (var key in events) {
+        var method = events[key];
+        if (!_.isFunction(method)) method = this[method];
+        if (!method) continue;
+        var match = key.match(delegateEventSplitter);
+        this.delegate(match[1], match[2], method.bind(this));
+      }
+      return this;
+    },
+
+    // Add a single event listener to the view's element (or a child element
+    // using `selector`). This only works for delegate-able events: not `focus`,
+    // `blur`, and not `change`, `submit`, and `reset` in Internet Explorer.
+    delegate: function(eventName, selector, listener) {
+      this.$el.on(eventName + '.delegateEvents' + this.cid, selector, listener);
+      return this;
+    },
+
+    // Clears all callbacks previously bound to the view by `delegateEvents`.
+    // You usually don't need to use this, but may wish to if you have multiple
+    // Backbone views attached to the same DOM element.
+    undelegateEvents: function() {
+      if (this.$el) this.$el.off('.delegateEvents' + this.cid);
+      return this;
+    },
+
+    // A finer-grained `undelegateEvents` for removing a single delegated event.
+    // `selector` and `listener` are both optional.
+    undelegate: function(eventName, selector, listener) {
+      this.$el.off(eventName + '.delegateEvents' + this.cid, selector, listener);
+      return this;
+    },
+
+    // Produces a DOM element to be assigned to your view. Exposed for
+    // subclasses using an alternative DOM manipulation API.
+    _createElement: function(tagName) {
+      return document.createElement(tagName);
+    },
+
+    // Ensure that the View has a DOM element to render into.
+    // If `this.el` is a string, pass it through `$()`, take the first
+    // matching element, and re-assign it to `el`. Otherwise, create
+    // an element from the `id`, `className` and `tagName` properties.
+    _ensureElement: function() {
+      if (!this.el) {
+        var attrs = _.extend({}, _.result(this, 'attributes'));
+        if (this.id) attrs.id = _.result(this, 'id');
+        if (this.className) attrs['class'] = _.result(this, 'className');
+        this.setElement(this._createElement(_.result(this, 'tagName')));
+        this._setAttributes(attrs);
+      } else {
+        this.setElement(_.result(this, 'el'));
+      }
+    },
+
+    // Set attributes from a hash on this view's element.  Exposed for
+    // subclasses using an alternative DOM manipulation API.
+    _setAttributes: function(attributes) {
+      this.$el.attr(attributes);
+    }
+
+  });
+
+  // Proxy Backbone class methods to Underscore functions, wrapping the model's
+  // `attributes` object or collection's `models` array behind the scenes.
+  //
+  // collection.filter(function(model) { return model.get('age') > 10 });
+  // collection.each(this.addView);
+  //
+  // `Function#apply` can be slow so we use the method's arg count, if we know it.
+  var addMethod = function(base, length, method, attribute) {
+    switch (length) {
+      case 1: return function() {
+        return base[method](this[attribute]);
+      };
+      case 2: return function(value) {
+        return base[method](this[attribute], value);
+      };
+      case 3: return function(iteratee, context) {
+        return base[method](this[attribute], cb(iteratee, this), context);
+      };
+      case 4: return function(iteratee, defaultVal, context) {
+        return base[method](this[attribute], cb(iteratee, this), defaultVal, context);
+      };
+      default: return function() {
+        var args = slice.call(arguments);
+        args.unshift(this[attribute]);
+        return base[method].apply(base, args);
+      };
+    }
+  };
+
+  var addUnderscoreMethods = function(Class, base, methods, attribute) {
+    _.each(methods, function(length, method) {
+      if (base[method]) Class.prototype[method] = addMethod(base, length, method, attribute);
+    });
+  };
+
+  // Support `collection.sortBy('attr')` and `collection.findWhere({id: 1})`.
+  var cb = function(iteratee, instance) {
+    if (_.isFunction(iteratee)) return iteratee;
+    if (_.isObject(iteratee) && !instance._isModel(iteratee)) return modelMatcher(iteratee);
+    if (_.isString(iteratee)) return function(model) { return model.get(iteratee); };
+    return iteratee;
+  };
+  var modelMatcher = function(attrs) {
+    var matcher = _.matches(attrs);
+    return function(model) {
+      return matcher(model.attributes);
+    };
+  };
+
+  // Underscore methods that we want to implement on the Collection.
+  // 90% of the core usefulness of Backbone Collections is actually implemented
+  // right here:
+  var collectionMethods = {forEach: 3, each: 3, map: 3, collect: 3, reduce: 0,
+    foldl: 0, inject: 0, reduceRight: 0, foldr: 0, find: 3, detect: 3, filter: 3,
+    select: 3, reject: 3, every: 3, all: 3, some: 3, any: 3, include: 3, includes: 3,
+    contains: 3, invoke: 0, max: 3, min: 3, toArray: 1, size: 1, first: 3,
+    head: 3, take: 3, initial: 3, rest: 3, tail: 3, drop: 3, last: 3,
+    without: 0, difference: 0, indexOf: 3, shuffle: 1, lastIndexOf: 3,
+    isEmpty: 1, chain: 1, sample: 3, partition: 3, groupBy: 3, countBy: 3,
+    sortBy: 3, indexBy: 3, findIndex: 3, findLastIndex: 3};
+
+
+  // Underscore methods that we want to implement on the Model, mapped to the
+  // number of arguments they take.
+  var modelMethods = {keys: 1, values: 1, pairs: 1, invert: 1, pick: 0,
+    omit: 0, chain: 1, isEmpty: 1};
+
+  // Mix in each Underscore method as a proxy to `Collection#models`.
+
+  _.each([
+    [Collection, collectionMethods, 'models'],
+    [Model, modelMethods, 'attributes']
+  ], function(config) {
+    var Base = config[0],
+        methods = config[1],
+        attribute = config[2];
+
+    Base.mixin = function(obj) {
+      var mappings = _.reduce(_.functions(obj), function(memo, name) {
+        memo[name] = 0;
+        return memo;
+      }, {});
+      addUnderscoreMethods(Base, obj, mappings, attribute);
+    };
+
+    addUnderscoreMethods(Base, _, methods, attribute);
+  });
+
+  // Backbone.sync
+  // -------------
+
+  // Override this function to change the manner in which Backbone persists
+  // models to the server. You will be passed the type of request, and the
+  // model in question. By default, makes a RESTful Ajax request
+  // to the model's `url()`. Some possible customizations could be:
+  //
+  // * Use `setTimeout` to batch rapid-fire updates into a single request.
+  // * Send up the models as XML instead of JSON.
+  // * Persist models via WebSockets instead of Ajax.
+  //
+  // Turn on `Backbone.emulateHTTP` in order to send `PUT` and `DELETE` requests
+  // as `POST`, with a `_method` parameter containing the true HTTP method,
+  // as well as all requests with the body as `application/x-www-form-urlencoded`
+  // instead of `application/json` with the model in a param named `model`.
+  // Useful when interfacing with server-side languages like **PHP** that make
+  // it difficult to read the body of `PUT` requests.
+  Backbone.sync = function(method, model, options) {
+    var type = methodMap[method];
+
+    // Default options, unless specified.
+    _.defaults(options || (options = {}), {
+      emulateHTTP: Backbone.emulateHTTP,
+      emulateJSON: Backbone.emulateJSON
+    });
+
+    // Default JSON-request options.
+    var params = {type: type, dataType: 'json'};
+
+    // Ensure that we have a URL.
+    if (!options.url) {
+      params.url = _.result(model, 'url') || urlError();
+    }
+
+    // Ensure that we have the appropriate request data.
+    if (options.data == null && model && (method === 'create' || method === 'update' || method === 'patch')) {
+      params.contentType = 'application/json';
+      params.data = JSON.stringify(options.attrs || model.toJSON(options));
+    }
+
+    // For older servers, emulate JSON by encoding the request into an HTML-form.
+    if (options.emulateJSON) {
+      params.contentType = 'application/x-www-form-urlencoded';
+      params.data = params.data ? {model: params.data} : {};
+    }
+
+    // For older servers, emulate HTTP by mimicking the HTTP method with `_method`
+    // And an `X-HTTP-Method-Override` header.
+    if (options.emulateHTTP && (type === 'PUT' || type === 'DELETE' || type === 'PATCH')) {
+      params.type = 'POST';
+      if (options.emulateJSON) params.data._method = type;
+      var beforeSend = options.beforeSend;
+      options.beforeSend = function(xhr) {
+        xhr.setRequestHeader('X-HTTP-Method-Override', type);
+        if (beforeSend) return beforeSend.apply(this, arguments);
+      };
+    }
+
+    // Don't process data on a non-GET request.
+    if (params.type !== 'GET' && !options.emulateJSON) {
+      params.processData = false;
+    }
+
+    // Pass along `textStatus` and `errorThrown` from jQuery.
+    var error = options.error;
+    options.error = function(xhr, textStatus, errorThrown) {
+      options.textStatus = textStatus;
+      options.errorThrown = errorThrown;
+      if (error) error.call(options.context, xhr, textStatus, errorThrown);
+    };
+
+    // Make the request, allowing the user to override any Ajax options.
+    var xhr = options.xhr = Backbone.ajax(_.extend(params, options));
+    model.trigger('request', model, xhr, options);
+    return xhr;
+  };
+
+  // Map from CRUD to HTTP for our default `Backbone.sync` implementation.
+  var methodMap = {
+    create: 'POST',
+    update: 'PUT',
+    patch: 'PATCH',
+    delete: 'DELETE',
+    read: 'GET'
+  };
+
+  // Set the default implementation of `Backbone.ajax` to proxy through to `$`.
+  // Override this if you'd like to use a different library.
+  Backbone.ajax = function() {
+    return Backbone.$.ajax.apply(Backbone.$, arguments);
+  };
+
+  // Backbone.Router
+  // ---------------
+
+  // Routers map faux-URLs to actions, and fire events when routes are
+  // matched. Creating a new one sets its `routes` hash, if not set statically.
+  var Router = Backbone.Router = function(options) {
+    options || (options = {});
+    this.preinitialize.apply(this, arguments);
+    if (options.routes) this.routes = options.routes;
+    this._bindRoutes();
+    this.initialize.apply(this, arguments);
+  };
+
+  // Cached regular expressions for matching named param parts and splatted
+  // parts of route strings.
+  var optionalParam = /\((.*?)\)/g;
+  var namedParam    = /(\(\?)?:\w+/g;
+  var splatParam    = /\*\w+/g;
+  var escapeRegExp  = /[\-{}\[\]+?.,\\\^$|#\s]/g;
+
+  // Set up all inheritable **Backbone.Router** properties and methods.
+  _.extend(Router.prototype, Events, {
+
+    // preinitialize is an empty function by default. You can override it with a function
+    // or object.  preinitialize will run before any instantiation logic is run in the Router.
+    preinitialize: function(){},
+
+    // Initialize is an empty function by default. Override it with your own
+    // initialization logic.
+    initialize: function(){},
+
+    // Manually bind a single named route to a callback. For example:
+    //
+    //     this.route('search/:query/p:num', 'search', function(query, num) {
+    //       ...
+    //     });
+    //
+    route: function(route, name, callback) {
+      if (!_.isRegExp(route)) route = this._routeToRegExp(route);
+      if (_.isFunction(name)) {
+        callback = name;
+        name = '';
+      }
+      if (!callback) callback = this[name];
+      var router = this;
+      Backbone.history.route(route, function(fragment) {
+        var args = router._extractParameters(route, fragment);
+        if (router.execute(callback, args, name) !== false) {
+          router.trigger.apply(router, ['route:' + name].concat(args));
+          router.trigger('route', name, args);
+          Backbone.history.trigger('route', router, name, args);
+        }
+      });
+      return this;
+    },
+
+    // Execute a route handler with the provided parameters.  This is an
+    // excellent place to do pre-route setup or post-route cleanup.
+    execute: function(callback, args, name) {
+      if (callback) callback.apply(this, args);
+    },
+
+    // Simple proxy to `Backbone.history` to save a fragment into the history.
+    navigate: function(fragment, options) {
+      Backbone.history.navigate(fragment, options);
+      return this;
+    },
+
+    // Bind all defined routes to `Backbone.history`. We have to reverse the
+    // order of the routes here to support behavior where the most general
+    // routes can be defined at the bottom of the route map.
+    _bindRoutes: function() {
+      if (!this.routes) return;
+      this.routes = _.result(this, 'routes');
+      var route, routes = _.keys(this.routes);
+      while ((route = routes.pop()) != null) {
+        this.route(route, this.routes[route]);
+      }
+    },
+
+    // Convert a route string into a regular expression, suitable for matching
+    // against the current location hash.
+    _routeToRegExp: function(route) {
+      route = route.replace(escapeRegExp, '\\$&')
+        .replace(optionalParam, '(?:$1)?')
+        .replace(namedParam, function(match, optional) {
+          return optional ? match : '([^/?]+)';
+        })
+        .replace(splatParam, '([^?]*?)');
+      return new RegExp('^' + route + '(?:\\?([\\s\\S]*))?$');
+    },
+
+    // Given a route, and a URL fragment that it matches, return the array of
+    // extracted decoded parameters. Empty or unmatched parameters will be
+    // treated as `null` to normalize cross-browser behavior.
+    _extractParameters: function(route, fragment) {
+      var params = route.exec(fragment).slice(1);
+      return _.map(params, function(param, i) {
+        // Don't decode the search params.
+        if (i === params.length - 1) return param || null;
+        return param ? decodeURIComponent(param) : null;
+      });
+    }
+
+  });
+
+  // Backbone.History
+  // ----------------
+
+  // Handles cross-browser history management, based on either
+  // [pushState](http://diveintohtml5.info/history.html) and real URLs, or
+  // [onhashchange](https://developer.mozilla.org/en-US/docs/DOM/window.onhashchange)
+  // and URL fragments. If the browser supports neither (old IE, natch),
+  // falls back to polling.
+  var History = Backbone.History = function() {
+    this.handlers = [];
+    this.checkUrl = this.checkUrl.bind(this);
+
+    // Ensure that `History` can be used outside of the browser.
+    if (typeof window !== 'undefined') {
+      this.location = window.location;
+      this.history = window.history;
+    }
+  };
+
+  // Cached regex for stripping a leading hash/slash and trailing space.
+  var routeStripper = /^[#\/]|\s+$/g;
+
+  // Cached regex for stripping leading and trailing slashes.
+  var rootStripper = /^\/+|\/+$/g;
+
+  // Cached regex for stripping urls of hash.
+  var pathStripper = /#.*$/;
+
+  // Has the history handling already been started?
+  History.started = false;
+
+  // Set up all inheritable **Backbone.History** properties and methods.
+  _.extend(History.prototype, Events, {
+
+    // The default interval to poll for hash changes, if necessary, is
+    // twenty times a second.
+    interval: 50,
+
+    // Are we at the app root?
+    atRoot: function() {
+      var path = this.location.pathname.replace(/[^\/]$/, '$&/');
+      return path === this.root && !this.getSearch();
+    },
+
+    // Does the pathname match the root?
+    matchRoot: function() {
+      var path = this.decodeFragment(this.location.pathname);
+      var rootPath = path.slice(0, this.root.length - 1) + '/';
+      return rootPath === this.root;
+    },
+
+    // Unicode characters in `location.pathname` are percent encoded so they're
+    // decoded for comparison. `%25` should not be decoded since it may be part
+    // of an encoded parameter.
+    decodeFragment: function(fragment) {
+      return decodeURI(fragment.replace(/%25/g, '%2525'));
+    },
+
+    // In IE6, the hash fragment and search params are incorrect if the
+    // fragment contains `?`.
+    getSearch: function() {
+      var match = this.location.href.replace(/#.*/, '').match(/\?.+/);
+      return match ? match[0] : '';
+    },
+
+    // Gets the true hash value. Cannot use location.hash directly due to bug
+    // in Firefox where location.hash will always be decoded.
+    getHash: function(window) {
+      var match = (window || this).location.href.match(/#(.*)$/);
+      return match ? match[1] : '';
+    },
+
+    // Get the pathname and search params, without the root.
+    getPath: function() {
+      var path = this.decodeFragment(
+        this.location.pathname + this.getSearch()
+      ).slice(this.root.length - 1);
+      return path.charAt(0) === '/' ? path.slice(1) : path;
+    },
+
+    // Get the cross-browser normalized URL fragment from the path or hash.
+    getFragment: function(fragment) {
+      if (fragment == null) {
+        if (this._usePushState || !this._wantsHashChange) {
+          fragment = this.getPath();
+        } else {
+          fragment = this.getHash();
+        }
+      }
+      return fragment.replace(routeStripper, '');
+    },
+
+    // Start the hash change handling, returning `true` if the current URL matches
+    // an existing route, and `false` otherwise.
+    start: function(options) {
+      if (History.started) throw new Error('Backbone.history has already been started');
+      History.started = true;
+
+      // Figure out the initial configuration. Do we need an iframe?
+      // Is pushState desired ... is it available?
+      this.options          = _.extend({root: '/'}, this.options, options);
+      this.root             = this.options.root;
+      this._wantsHashChange = this.options.hashChange !== false;
+      this._hasHashChange   = 'onhashchange' in window && (document.documentMode === void 0 || document.documentMode > 7);
+      this._useHashChange   = this._wantsHashChange && this._hasHashChange;
+      this._wantsPushState  = !!this.options.pushState;
+      this._hasPushState    = !!(this.history && this.history.pushState);
+      this._usePushState    = this._wantsPushState && this._hasPushState;
+      this.fragment         = this.getFragment();
+
+      // Normalize root to always include a leading and trailing slash.
+      this.root = ('/' + this.root + '/').replace(rootStripper, '/');
+
+      // Transition from hashChange to pushState or vice versa if both are
+      // requested.
+      if (this._wantsHashChange && this._wantsPushState) {
+
+        // If we've started off with a route from a `pushState`-enabled
+        // browser, but we're currently in a browser that doesn't support it...
+        if (!this._hasPushState && !this.atRoot()) {
+          var rootPath = this.root.slice(0, -1) || '/';
+          this.location.replace(rootPath + '#' + this.getPath());
+          // Return immediately as browser will do redirect to new url
+          return true;
+
+        // Or if we've started out with a hash-based route, but we're currently
+        // in a browser where it could be `pushState`-based instead...
+        } else if (this._hasPushState && this.atRoot()) {
+          this.navigate(this.getHash(), {replace: true});
+        }
+
+      }
+
+      // Proxy an iframe to handle location events if the browser doesn't
+      // support the `hashchange` event, HTML5 history, or the user wants
+      // `hashChange` but not `pushState`.
+      if (!this._hasHashChange && this._wantsHashChange && !this._usePushState) {
+        this.iframe = document.createElement('iframe');
+        this.iframe.src = 'javascript:0';
+        this.iframe.style.display = 'none';
+        this.iframe.tabIndex = -1;
+        var body = document.body;
+        // Using `appendChild` will throw on IE < 9 if the document is not ready.
+        var iWindow = body.insertBefore(this.iframe, body.firstChild).contentWindow;
+        iWindow.document.open();
+        iWindow.document.close();
+        iWindow.location.hash = '#' + this.fragment;
+      }
+
+      // Add a cross-platform `addEventListener` shim for older browsers.
+      var addEventListener = window.addEventListener || function(eventName, listener) {
+        return attachEvent('on' + eventName, listener);
+      };
+
+      // Depending on whether we're using pushState or hashes, and whether
+      // 'onhashchange' is supported, determine how we check the URL state.
+      if (this._usePushState) {
+        addEventListener('popstate', this.checkUrl, false);
+      } else if (this._useHashChange && !this.iframe) {
+        addEventListener('hashchange', this.checkUrl, false);
+      } else if (this._wantsHashChange) {
+        this._checkUrlInterval = setInterval(this.checkUrl, this.interval);
+      }
+
+      if (!this.options.silent) return this.loadUrl();
+    },
+
+    // Disable Backbone.history, perhaps temporarily. Not useful in a real app,
+    // but possibly useful for unit testing Routers.
+    stop: function() {
+      // Add a cross-platform `removeEventListener` shim for older browsers.
+      var removeEventListener = window.removeEventListener || function(eventName, listener) {
+        return detachEvent('on' + eventName, listener);
+      };
+
+      // Remove window listeners.
+      if (this._usePushState) {
+        removeEventListener('popstate', this.checkUrl, false);
+      } else if (this._useHashChange && !this.iframe) {
+        removeEventListener('hashchange', this.checkUrl, false);
+      }
+
+      // Clean up the iframe if necessary.
+      if (this.iframe) {
+        document.body.removeChild(this.iframe);
+        this.iframe = null;
+      }
+
+      // Some environments will throw when clearing an undefined interval.
+      if (this._checkUrlInterval) clearInterval(this._checkUrlInterval);
+      History.started = false;
+    },
+
+    // Add a route to be tested when the fragment changes. Routes added later
+    // may override previous routes.
+    route: function(route, callback) {
+      this.handlers.unshift({route: route, callback: callback});
+    },
+
+    // Checks the current URL to see if it has changed, and if it has,
+    // calls `loadUrl`, normalizing across the hidden iframe.
+    checkUrl: function(e) {
+      var current = this.getFragment();
+
+      // If the user pressed the back button, the iframe's hash will have
+      // changed and we should use that for comparison.
+      if (current === this.fragment && this.iframe) {
+        current = this.getHash(this.iframe.contentWindow);
+      }
+
+      if (current === this.fragment) return false;
+      if (this.iframe) this.navigate(current);
+      this.loadUrl();
+    },
+
+    // Attempt to load the current URL fragment. If a route succeeds with a
+    // match, returns `true`. If no defined routes matches the fragment,
+    // returns `false`.
+    loadUrl: function(fragment) {
+      // If the root doesn't match, no routes can match either.
+      if (!this.matchRoot()) return false;
+      fragment = this.fragment = this.getFragment(fragment);
+      return _.some(this.handlers, function(handler) {
+        if (handler.route.test(fragment)) {
+          handler.callback(fragment);
+          return true;
+        }
+      });
+    },
+
+    // Save a fragment into the hash history, or replace the URL state if the
+    // 'replace' option is passed. You are responsible for properly URL-encoding
+    // the fragment in advance.
+    //
+    // The options object can contain `trigger: true` if you wish to have the
+    // route callback be fired (not usually desirable), or `replace: true`, if
+    // you wish to modify the current URL without adding an entry to the history.
+    navigate: function(fragment, options) {
+      if (!History.started) return false;
+      if (!options || options === true) options = {trigger: !!options};
+
+      // Normalize the fragment.
+      fragment = this.getFragment(fragment || '');
+
+      // Don't include a trailing slash on the root.
+      var rootPath = this.root;
+      if (fragment === '' || fragment.charAt(0) === '?') {
+        rootPath = rootPath.slice(0, -1) || '/';
+      }
+      var url = rootPath + fragment;
+
+      // Strip the fragment of the query and hash for matching.
+      fragment = fragment.replace(pathStripper, '');
+
+      // Decode for matching.
+      var decodedFragment = this.decodeFragment(fragment);
+
+      if (this.fragment === decodedFragment) return;
+      this.fragment = decodedFragment;
+
+      // If pushState is available, we use it to set the fragment as a real URL.
+      if (this._usePushState) {
+        this.history[options.replace ? 'replaceState' : 'pushState']({}, document.title, url);
+
+      // If hash changes haven't been explicitly disabled, update the hash
+      // fragment to store history.
+      } else if (this._wantsHashChange) {
+        this._updateHash(this.location, fragment, options.replace);
+        if (this.iframe && fragment !== this.getHash(this.iframe.contentWindow)) {
+          var iWindow = this.iframe.contentWindow;
+
+          // Opening and closing the iframe tricks IE7 and earlier to push a
+          // history entry on hash-tag change.  When replace is true, we don't
+          // want this.
+          if (!options.replace) {
+            iWindow.document.open();
+            iWindow.document.close();
+          }
+
+          this._updateHash(iWindow.location, fragment, options.replace);
+        }
+
+      // If you've told us that you explicitly don't want fallback hashchange-
+      // based history, then `navigate` becomes a page refresh.
+      } else {
+        return this.location.assign(url);
+      }
+      if (options.trigger) return this.loadUrl(fragment);
+    },
+
+    // Update the hash location, either replacing the current entry, or adding
+    // a new one to the browser history.
+    _updateHash: function(location, fragment, replace) {
+      if (replace) {
+        var href = location.href.replace(/(javascript:|#).*$/, '');
+        location.replace(href + '#' + fragment);
+      } else {
+        // Some browsers require that `hash` contains a leading #.
+        location.hash = '#' + fragment;
+      }
+    }
+
+  });
+
+  // Create the default Backbone.history.
+  Backbone.history = new History;
+
+  // Helpers
+  // -------
+
+  // Helper function to correctly set up the prototype chain for subclasses.
+  // Similar to `goog.inherits`, but uses a hash of prototype properties and
+  // class properties to be extended.
+  var extend = function(protoProps, staticProps) {
+    var parent = this;
+    var child;
+
+    // The constructor function for the new subclass is either defined by you
+    // (the "constructor" property in your `extend` definition), or defaulted
+    // by us to simply call the parent constructor.
+    if (protoProps && _.has(protoProps, 'constructor')) {
+      child = protoProps.constructor;
+    } else {
+      child = function(){ return parent.apply(this, arguments); };
+    }
+
+    // Add static properties to the constructor function, if supplied.
+    _.extend(child, parent, staticProps);
+
+    // Set the prototype chain to inherit from `parent`, without calling
+    // `parent`'s constructor function and add the prototype properties.
+    child.prototype = _.create(parent.prototype, protoProps);
+    child.prototype.constructor = child;
+
+    // Set a convenience property in case the parent's prototype is needed
+    // later.
+    child.__super__ = parent.prototype;
+
+    return child;
+  };
+
+  // Set up inheritance for the model, collection, router, view and history.
+  Model.extend = Collection.extend = Router.extend = View.extend = History.extend = extend;
+
+  // Throw an error when a URL is needed, and none is supplied.
+  var urlError = function() {
+    throw new Error('A "url" property or function must be specified');
+  };
+
+  // Wrap an optional error callback with a fallback error event.
+  var wrapError = function(model, options) {
+    var error = options.error;
+    options.error = function(resp) {
+      if (error) error.call(options.context, model, resp, options);
+      model.trigger('error', model, resp, options);
+    };
+  };
+
+  return Backbone;
+});
+
+
+/***/ }),
+
+/***/ "../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard-action.js":
+/*!*************************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard-action.js ***!
+  \*************************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;(function (global, factory) {
     if (true) {
-        !(__WEBPACK_AMD_DEFINE_ARRAY__ = [module, __webpack_require__(/*! select */ "./node_modules/select/src/select.js")], __WEBPACK_AMD_DEFINE_FACTORY__ = (factory),
+        !(__WEBPACK_AMD_DEFINE_ARRAY__ = [module, __webpack_require__(/*! select */ "../../../../../../okta/okta-ui/node_modules/select/src/select.js")], __WEBPACK_AMD_DEFINE_FACTORY__ = (factory),
 		__WEBPACK_AMD_DEFINE_RESULT__ = (typeof __WEBPACK_AMD_DEFINE_FACTORY__ === 'function' ?
 		(__WEBPACK_AMD_DEFINE_FACTORY__.apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__)) : __WEBPACK_AMD_DEFINE_FACTORY__),
 		__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
@@ -17672,15 +19775,15 @@ var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_
 
 /***/ }),
 
-/***/ "./node_modules/clipboard/lib/clipboard.js":
-/*!*************************************************!*\
-  !*** ./node_modules/clipboard/lib/clipboard.js ***!
-  \*************************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard.js":
+/*!******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard.js ***!
+  \******************************************************************************/
 /***/ (function(module, exports, __webpack_require__) {
 
 var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;(function (global, factory) {
     if (true) {
-        !(__WEBPACK_AMD_DEFINE_ARRAY__ = [module, __webpack_require__(/*! ./clipboard-action */ "./node_modules/clipboard/lib/clipboard-action.js"), __webpack_require__(/*! tiny-emitter */ "./node_modules/tiny-emitter/index.js"), __webpack_require__(/*! good-listener */ "./node_modules/good-listener/src/listen.js")], __WEBPACK_AMD_DEFINE_FACTORY__ = (factory),
+        !(__WEBPACK_AMD_DEFINE_ARRAY__ = [module, __webpack_require__(/*! ./clipboard-action */ "../../../../../../okta/okta-ui/node_modules/clipboard/lib/clipboard-action.js"), __webpack_require__(/*! tiny-emitter */ "../../../../../../okta/okta-ui/node_modules/tiny-emitter/index.js"), __webpack_require__(/*! good-listener */ "../../../../../../okta/okta-ui/node_modules/good-listener/src/listen.js")], __WEBPACK_AMD_DEFINE_FACTORY__ = (factory),
 		__WEBPACK_AMD_DEFINE_RESULT__ = (typeof __WEBPACK_AMD_DEFINE_FACTORY__ === 'function' ?
 		(__WEBPACK_AMD_DEFINE_FACTORY__.apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__)) : __WEBPACK_AMD_DEFINE_FACTORY__),
 		__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
@@ -17883,10 +19986,10 @@ var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_
 
 /***/ }),
 
-/***/ "./node_modules/delegate/src/closest.js":
-/*!**********************************************!*\
-  !*** ./node_modules/delegate/src/closest.js ***!
-  \**********************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/delegate/src/closest.js":
+/*!***************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/delegate/src/closest.js ***!
+  \***************************************************************************/
 /***/ (function(module) {
 
 var DOCUMENT_NODE_TYPE = 9;
@@ -17926,13 +20029,13 @@ module.exports = closest;
 
 /***/ }),
 
-/***/ "./node_modules/delegate/src/delegate.js":
-/*!***********************************************!*\
-  !*** ./node_modules/delegate/src/delegate.js ***!
-  \***********************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/delegate/src/delegate.js":
+/*!****************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/delegate/src/delegate.js ***!
+  \****************************************************************************/
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
-var closest = __webpack_require__(/*! ./closest */ "./node_modules/delegate/src/closest.js");
+var closest = __webpack_require__(/*! ./closest */ "../../../../../../okta/okta-ui/node_modules/delegate/src/closest.js");
 
 /**
  * Delegates event to a selector.
@@ -18014,10 +20117,10 @@ module.exports = delegate;
 
 /***/ }),
 
-/***/ "./node_modules/good-listener/src/is.js":
-/*!**********************************************!*\
-  !*** ./node_modules/good-listener/src/is.js ***!
-  \**********************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/good-listener/src/is.js":
+/*!***************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/good-listener/src/is.js ***!
+  \***************************************************************************/
 /***/ (function(__unused_webpack_module, exports) {
 
 /**
@@ -18073,14 +20176,14 @@ exports.fn = function(value) {
 
 /***/ }),
 
-/***/ "./node_modules/good-listener/src/listen.js":
-/*!**************************************************!*\
-  !*** ./node_modules/good-listener/src/listen.js ***!
-  \**************************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/good-listener/src/listen.js":
+/*!*******************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/good-listener/src/listen.js ***!
+  \*******************************************************************************/
 /***/ (function(module, __unused_webpack_exports, __webpack_require__) {
 
-var is = __webpack_require__(/*! ./is */ "./node_modules/good-listener/src/is.js");
-var delegate = __webpack_require__(/*! delegate */ "./node_modules/delegate/src/delegate.js");
+var is = __webpack_require__(/*! ./is */ "../../../../../../okta/okta-ui/node_modules/good-listener/src/is.js");
+var delegate = __webpack_require__(/*! delegate */ "../../../../../../okta/okta-ui/node_modules/delegate/src/delegate.js");
 
 /**
  * Validates all params and calls the right
@@ -18178,10 +20281,10 @@ module.exports = listen;
 
 /***/ }),
 
-/***/ "./node_modules/select/src/select.js":
-/*!*******************************************!*\
-  !*** ./node_modules/select/src/select.js ***!
-  \*******************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/select/src/select.js":
+/*!************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/select/src/select.js ***!
+  \************************************************************************/
 /***/ (function(module) {
 
 function select(element) {
@@ -18231,10 +20334,10 @@ module.exports = select;
 
 /***/ }),
 
-/***/ "./node_modules/tiny-emitter/index.js":
-/*!********************************************!*\
-  !*** ./node_modules/tiny-emitter/index.js ***!
-  \********************************************/
+/***/ "../../../../../../okta/okta-ui/node_modules/tiny-emitter/index.js":
+/*!*************************************************************************!*\
+  !*** ../../../../../../okta/okta-ui/node_modules/tiny-emitter/index.js ***!
+  \*************************************************************************/
 /***/ (function(module) {
 
 function E () {
@@ -18303,7 +20406,6 @@ E.prototype = {
 };
 
 module.exports = E;
-module.exports.TinyEmitter = E;
 
 
 /***/ }),
@@ -18418,7 +20520,7 @@ module.exports = require("underscore");
 /******/ 	// startup
 /******/ 	// Load entry module and return exports
 /******/ 	// This entry module is referenced by other modules so it can't be inlined
-/******/ 	var __webpack_exports__ = __webpack_require__("./src/CourageForSigninWidget.js");
+/******/ 	var __webpack_exports__ = __webpack_require__("./src/CourageForSigninWidget.ts");
 /******/ 	module.exports = __webpack_exports__;
 /******/ 	
 /******/ })()

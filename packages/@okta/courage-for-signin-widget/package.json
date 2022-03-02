@@ -4,13 +4,19 @@
   "description": "Generates a version of Courage for Sign-In Widget",
   "main": "src/CourageForSigninWidget.js",
   "scripts": {
-    "build": "webpack"
+    "prebuild": "yarn clean:types && yarn build:types",
+    "build": "webpack",
+    "clean:types": "rimraf ../courage-dist/types",
+    "build:types": "tsc --noEmit false --declaration --emitDeclarationOnly"
   },
   "devDependencies": {
     "@okta/babel-plugin-handlebars-inline-precompile": "3.1.0-beta.4200.gf3d0a27",
     "@okta/courage": "4.5.0-5925-g2fcb134",
     "@okta/eslint-plugin-okta-ui": "0.1.0-beta.4181.g1f38f27",
     "copy-webpack-plugin": "4.6.0",
+    "ts-loader": "^9.2.6",
+    "tsconfig-paths-webpack-plugin": "^3.5.2",
+    "typescript": "^4.6.2",
     "webpack": "^5.51.1",
     "webpack-bundle-analyzer": "^4.4.2"
   }

@@ -1,7 +1,7 @@
 module.exports = {
   'root': true,
   'extends': [
-    'plugin:@okta/okta/courage-app' // apply courage-app rules to all files including properties
+    'plugin:@okta/okta/courage-app', // apply courage-app rules to all files including properties
   ],
   'parser': 'babel-eslint',
   'parserOptions': {
@@ -106,6 +106,14 @@ module.exports = {
         'local-rules/no-missing-keys': 2,
         'local-rules/no-missing-api-keys': 2,
       },
+    },
+    {
+      files: ['**/*/ts'],
+      parser: '@typescript-eslint/parser',
+      extends: [
+        'plugin:@typescript-eslint/eslint-recommended',
+        'plugin:@typescript-eslint/recommended',
+      ]
     }
   ],
 };
