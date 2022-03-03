@@ -13,6 +13,7 @@
       "vendor/*": ["node_modules/@okta/courage/src/vendor/*"],
       "ConfirmationDialog": ["buildtools/ConfirmationDialog.ts"],
       "okta-i18n-bundles": ["node_modules/@okta/courage/src/okta-i18n-bundles.js"],
+      "handlebars-inline-precompile": ["node_modules/@okta/courage/buildtools/tsc/handlebars-inline-precompile.ts"]
     }
   },
   "include": [

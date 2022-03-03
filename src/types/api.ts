@@ -1,5 +1,34 @@
 import { OktaAuth, OktaAuthOptions, Tokens } from '@okta/okta-auth-js';
+import { EventCallback, EventCallbackWithError } from './WidgetOptions';
+export interface HooksAPI {
+  before(eventName, hookFn): void;
+  after(eventName, hookFn): void;
+}
+export interface RouterEventsAPI {
+  on(event: 'ready', callback: EventCallback): void;
+  on(event: 'afterError', callback: EventCallbackWithError): void;
+  on(event: 'afterRender', callback: EventCallback): void;
 
+  off(event?: 'ready', callback?: EventCallback): void;
+  off(event?: 'afterError', callback?: EventCallbackWithError): void;
+  off(event?: 'afterRender', callback?: EventCallback): void;
+}
+export interface OktaSignInAPI extends HooksAPI, RouterEventsAPI {
+  authClient: OktaAuth;
+  show(): void;
+  hide(): void;
+  remove(): void;
+  showSignIn(options): Promise<unknown>;
+  showSignInToGetTokens(options: ShowSignInToGetTokensOptions): Promise<Tokens>;
+  showSignInAndRedirect(options: ShowSignInAndRedirectOptions): Promise<void>;
+  renderEl(
+    options: RenderElOptions,
+    success?: (res: RenderResult) => void,
+    error?: (err: RenderError) => void
+  ): Promise<RenderResult>;
+
+  getUser(): void
+}
 export type SimpleCallback = () => void;
 
 // Auth params

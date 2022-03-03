@@ -8,14 +8,14 @@ declare const Okta: {
     $: JQueryStatic;
     _: _.UnderscoreStatic;
     Handlebars: typeof Handlebars;
-    loc: (key: any, bundleName: any, params?: any) => any;
+    loc: (key: any, bundleName?: any, params?: any) => any;
     createButton: (options: any) => any;
     createCallout: any;
-    registerInput: any;
+    registerInput: (type: string, input: BaseInput) => void;
     Model: any;
     BaseModel: any;
     Collection: any;
-    FrameworkView: any;
+    FrameworkView: typeof import("@okta/courage/src/framework/View").ViewClass;
     View: any;
     ListView: any;
     Router: any;
@@ -78,7 +78,19 @@ declare const Okta: {
             };
             forms: {
                 helpers: {
-                    FormUtil: any;
+                    FormUtil: {
+                        LABEL_OPTIONS: string[];
+                        CONTAINER_OPTIONS: string[];
+                        WRAPPER_OPTIONS: string[];
+                        INPUT_OPTIONS: string[];
+                        generateInputOptions: (options: import("@okta/courage/src/views/forms/helpers/FormUtil").InputOptions, form: any, createFn: any) => import("@okta/courage/src/views/forms/helpers/FormUtil").InputOptions[];
+                        changeEventString: (fieldNames: any) => string;
+                        createReadFormButton: (options: import("@okta/courage/src/views/forms/helpers/FormUtil").CreateReadFormButtonOptions) => any;
+                        createButton: (options: import("@okta/courage/src/views/forms/helpers/FormUtil").CreateButtonOptions) => any;
+                        validateInput: (options: import("@okta/courage/src/views/forms/helpers/FormUtil").InputOptions, model: any) => void;
+                        applyShowWhen: (view: any, showWhen: any) => void;
+                        applyToggleWhen: (view: any, toggleWhen: any) => void;
+                    };
                     SchemaFormFactory: any;
                 };
                 components: {

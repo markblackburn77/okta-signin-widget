@@ -40,9 +40,11 @@ import './util/scrollParent';
 
 // The string will be returned unchanged. All templates should be precompiled.
 FrameworkView.prototype.compileTemplate = function(str) {
-  return function fakeTemplate() {
+  const fn = function fakeTemplate() {
     return str;
   };
+  fn.source = ''; // to satisfy type
+  return fn;
 };
 
 // Override events to not support `Enter` submitting the form twice - OKTA-321999 and OKTA-317629

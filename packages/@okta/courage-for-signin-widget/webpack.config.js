@@ -36,7 +36,10 @@ const babelExclude = function (filePath) {
 };
 
 const babelOptions = {
-  presets: [['@babel/preset-env', { modules: 'commonjs' }]],
+  presets: [
+    '@babel/preset-typescript',
+    ['@babel/preset-env', { modules: 'commonjs' }]
+  ],
   plugins: [
     '@okta/babel-plugin-handlebars-inline-precompile',
     'add-module-exports'
@@ -58,7 +61,7 @@ const webpackConfig = {
   externals: EXTERNAL_PATHS,
   resolve: {
     extensions: ['.js', '.ts'],
-    plugins: [new TsconfigPathsPlugin()],
+    // plugins: [new TsconfigPathsPlugin()],
     alias: {
 
       // jsons is from StringUtil
@@ -85,28 +88,10 @@ const webpackConfig = {
   module: {
     rules: [
       {
-        test: /\.js$/,
+        test: /\.[jt]s$/,
         exclude: babelExclude,
         loader: 'babel-loader',
         options: babelOptions
-      },
-      {
-        test: /\.ts$/,
-        exclude: babelExclude,
-        use: [
-          {
-            loader: 'babel-loader',
-            options: babelOptions
-          },
-          {
-            loader: 'ts-loader',
-            options: {
-              compilerOptions: {
-                noEmit: false
-              }
-            }
-          }
-        ]
       },
     ]
   },

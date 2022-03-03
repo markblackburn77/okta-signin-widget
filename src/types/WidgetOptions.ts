@@ -8,6 +8,15 @@ import {
 } from './api';
 import { Registration } from './registration';
 
+
+export type HookFunction = () => Promise<void>;
+export interface HookDefinition {
+  before?: HookFunction[];
+  after?: HookFunction[];
+}
+export interface HooksOptions {
+  [name: string]: HookDefinition;
+}
 export interface WidgetOptions {
     // Basic config options
     baseUrl: string;
@@ -82,6 +91,9 @@ export interface WidgetOptions {
     consent?: {
       cancel?: SimpleCallback;
     };
+    useInteractionCodeFlow?: boolean;
+    hooks: HooksOptions;
+    proxyIdxResponse?: any;
   }
 
 
