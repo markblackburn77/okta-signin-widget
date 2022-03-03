@@ -26,10 +26,6 @@ declare namespace OktaCourage {
 declare var okta: OktaCourage.okta;
 declare var define: (fn: Function) => {};
 
-interface JQuery {
-  scrollParent: (includeHidden:boolean) => JQuery;
-}
-
 interface Window {
   jQueryCourage?: JQueryStatic;
   _features?: string[];

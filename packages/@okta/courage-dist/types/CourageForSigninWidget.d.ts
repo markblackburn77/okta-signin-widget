@@ -1,12 +1,10 @@
-/// <reference types="jquery" />
 import Class from '@okta/courage/src/util/Class';
 import Handlebars from '@okta/courage/src/util/handlebars-wrapper';
-import _ from '@okta/courage/src/util/underscore-wrapper';
 import './util/scrollParent';
 declare const Okta: {
     Backbone: any;
-    $: JQueryStatic;
-    _: _.UnderscoreStatic;
+    $: import("@okta/courage/src/util/jquery-wrapper").OktaJQueryStatic;
+    _: import("@okta/courage/src/util/underscore-wrapper").OktaUnderscore;
     Handlebars: typeof Handlebars;
     loc: (key: any, bundleName?: any, params?: any) => any;
     createButton: (options: any) => any;

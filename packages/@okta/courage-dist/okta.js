@@ -93,9 +93,13 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 // The string will be returned unchanged. All templates should be precompiled.
 _View.default.prototype.compileTemplate = function (str) {
-  return function fakeTemplate() {
+  var fn = function fakeTemplate() {
     return str;
   };
+
+  fn.source = ''; // to satisfy type
+
+  return fn;
 }; // Override events to not support `Enter` submitting the form twice - OKTA-321999 and OKTA-317629
 
 
@@ -1957,7 +1961,7 @@ View = _backbone.default.View.extend(
   // TODO: This will be deprecated at some point. Views should use precompiled templates
   compileTemplate: function compileTemplate(template) {
     /* eslint  @okta/okta-ui/no-specific-methods: 0*/
-    return _underscoreWrapper.default.template(template);
+    return _underscoreWrapper.default.template(template, undefined);
   },
 
   /**
@@ -5901,8 +5905,9 @@ _jquery.default.ajaxSetup({
 // We have 2 versions of jQuery running in parallel and they don't share the same events bus
 
 
-window.jQueryCourage = _jquery.default;
-var _default = _jquery.default;
+var oktaJQueryStatic = _jquery.default;
+window.jQueryCourage = oktaJQueryStatic;
+var _default = oktaJQueryStatic;
 exports.default = _default;
 module.exports = exports.default;
 
@@ -6008,13 +6013,22 @@ _underscore.default.mixin({
   template: function template(source, data) {
     var template = _handlebars.default.compile(source);
 
-    return data ? template(data) : function (data) {
+    if (data) {
+      return template(data);
+    }
+
+    var fn = function fn(data) {
       return template(data);
     };
+
+    fn.source = ''; // to conform with "CompiledTemplate" type definition
+
+    return fn;
   }
 });
 
-var _default = _underscore.default;
+var oktaUnderscore = _underscore.default;
+var _default = oktaUnderscore;
 exports.default = _default;
 module.exports = exports.default;
 
