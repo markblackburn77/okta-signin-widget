@@ -11,7 +11,7 @@ var LOCAL_PACKAGES = resolve(__dirname, 'packages/');
 // Return a function so that all consumers get a new copy of the config
 module.exports = function(outputFilename, mode = 'development') {
   return {
-    entry: [`${SRC}/widget/OktaSignIn.js`],
+    entry: [`${SRC}/widget/OktaSignIn.ts`],
     mode,
     devtool: 'source-map',
     output: {
@@ -21,6 +21,7 @@ module.exports = function(outputFilename, mode = 'development') {
       libraryTarget: 'umd'
     },
     resolve: {
+      extensions: ['.js', '.ts'],
       modules: [SRC, 'packages', 'node_modules'],
       alias: {
         // General remapping
@@ -46,7 +47,7 @@ module.exports = function(outputFilename, mode = 'development') {
       rules: [
         // Babel
         {
-          test: /\.js$/,
+          test: /\.[jt]s$/,
           exclude: function(filePath) {
             const filePathContains = (f) => filePath.indexOf(f) > 0;
             const npmRequiresTransform = [
@@ -65,10 +66,14 @@ module.exports = function(outputFilename, mode = 'development') {
           },
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env'],
+            presets: [
+              '@babel/preset-typescript',
+              '@babel/preset-env'
+            ],
             plugins: [
               './packages/@okta/babel-plugin-handlebars-inline-precompile',
-              '@babel/plugin-transform-modules-commonjs'
+              '@babel/plugin-transform-modules-commonjs',
+              'add-module-exports'
             ]
           }
         },

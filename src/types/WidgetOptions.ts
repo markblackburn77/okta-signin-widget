@@ -19,7 +19,7 @@ export interface HooksOptions {
 }
 export interface WidgetOptions {
     // Basic config options
-    baseUrl: string;
+    baseUrl?: string;
     logo?: string;
     logoText?: string;
     helpSupportNumber?: string;
@@ -92,7 +92,7 @@ export interface WidgetOptions {
       cancel?: SimpleCallback;
     };
     useInteractionCodeFlow?: boolean;
-    hooks: HooksOptions;
+    hooks?: HooksOptions;
     proxyIdxResponse?: any;
   }
 

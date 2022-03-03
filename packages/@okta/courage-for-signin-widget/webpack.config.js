@@ -3,7 +3,6 @@ const { resolve } = require('path');
 const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
 const { BannerPlugin } = require('webpack');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
-const TsconfigPathsPlugin = require('tsconfig-paths-webpack-plugin');
 const PACKAGE_JSON = require('./package.json');
 
 const EMPTY = resolve(__dirname, 'src/empty');
@@ -61,7 +60,6 @@ const webpackConfig = {
   externals: EXTERNAL_PATHS,
   resolve: {
     extensions: ['.js', '.ts'],
-    // plugins: [new TsconfigPathsPlugin()],
     alias: {
 
       // jsons is from StringUtil

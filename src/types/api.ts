@@ -1,5 +1,5 @@
 import { OktaAuth, OktaAuthOptions, Tokens } from '@okta/okta-auth-js';
-import { EventCallback, EventCallbackWithError } from './WidgetOptions';
+import { EventCallback, EventCallbackWithError, WidgetOptions } from './WidgetOptions';
 export interface HooksAPI {
   before(eventName, hookFn): void;
   after(eventName, hookFn): void;
@@ -29,6 +29,10 @@ export interface OktaSignInAPI extends HooksAPI, RouterEventsAPI {
 
   getUser(): void
 }
+export interface OktaSignInConstructor {
+  new(options: WidgetOptions): OktaSignInAPI;
+}
+
 export type SimpleCallback = () => void;
 
 // Auth params
@@ -87,55 +91,55 @@ type RenderStatus =
 type RenderType =
   'SESSION_STEP_UP' |
   'SESSION_SSO';
-interface RenderResultBasic {
+export interface RenderResultBasic {
   status: RenderStatus;
 }
-interface RenderResultRegistration extends RenderResultBasic {
+export interface RenderResultRegistration extends RenderResultBasic {
   status: 'REGISTRATION_COMPLETE';
   activationToken: string;
 }
-interface RenderResultEmailSent extends RenderResultBasic {
+export interface RenderResultEmailSent extends RenderResultBasic {
   status:
     'FORGOT_PASSWORD_EMAIL_SENT' |
     'ACTIVATION_EMAIL_SENT' |
     'UNLOCK_ACCOUNT_EMAIL_SENT';
   username: string;
 }
-interface RenderResultSuccessBasic extends RenderResultBasic {
+export interface RenderResultSuccessBasic extends RenderResultBasic {
   status: 'SUCCESS';
 }
-interface RenderResultSuccessOIDC extends RenderResultSuccessBasic {
+export interface RenderResultSuccessOIDC extends RenderResultSuccessBasic {
   tokens?: Tokens;
   code?: string;
   state?: string;
 }
-interface RenderResultSuccessNonOIDCBasic extends RenderResultSuccessBasic {
+export interface RenderResultSuccessNonOIDCBasic extends RenderResultSuccessBasic {
   type?: RenderType;
   user?: User;
 }
-interface RenderResultSuccessNonOIDCStepUp extends RenderResultSuccessNonOIDCBasic {
+export interface RenderResultSuccessNonOIDCStepUp extends RenderResultSuccessNonOIDCBasic {
   // type: 'SESSION_STEP_UP'
   stepUp?: {
     url: string;
     finish: SimpleCallback;
   };
 }
-interface RenderResultSuccessNonOIDCRedirect extends RenderResultSuccessNonOIDCBasic {
+export interface RenderResultSuccessNonOIDCRedirect extends RenderResultSuccessNonOIDCBasic {
   next?: SimpleCallback;
 }
-interface RenderResultSuccessNonOIDCSession extends RenderResultSuccessNonOIDCBasic {
+export interface RenderResultSuccessNonOIDCSession extends RenderResultSuccessNonOIDCBasic {
   // type: 'SESSION_SSO';
   session?: {
     token: string;
     setCookieAndRedirect: (redirectUrl: string) => void;
   };
 }
-type RenderResultSuccessNonIDC =
+export type RenderResultSuccessNonIDC =
   RenderResultSuccessNonOIDCStepUp &
   RenderResultSuccessNonOIDCRedirect &
   RenderResultSuccessNonOIDCSession;
 
-type RenderResultSuccess =
+export type RenderResultSuccess =
   RenderResultSuccessOIDC &
   RenderResultSuccessNonIDC;
   

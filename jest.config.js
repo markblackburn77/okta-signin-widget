@@ -13,7 +13,7 @@ module.exports = {
   collectCoverage: false,
   collectCoverageFrom: ['./src/**', '!./test/**'],
   transform: {
-    '^.+\\.(js)$': 'babel-jest',
+    '^.+\\.[jt]s$': 'babel-jest',
   },
   transformIgnorePatterns: ['/node_modules/', '/packages/', '/dist/', '/build/'],
   restoreMocks: true,
