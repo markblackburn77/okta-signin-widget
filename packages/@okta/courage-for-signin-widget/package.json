@@ -3,17 +3,20 @@
   "version": "1.0.0",
   "description": "Generates a version of Courage for Sign-In Widget",
   "main": "src/CourageForSigninWidget.js",
+  "type": "module",
   "scripts": {
     "prebuild": "yarn clean:types && yarn build:types",
     "build": "webpack",
     "clean:types": "rimraf ../courage-dist/types",
-    "build:types": "tsc --noEmit false --declaration --emitDeclarationOnly"
+    "build:types": "tsc --noEmit false --declaration --declarationMap --emitDeclarationOnly"
   },
   "devDependencies": {
     "@babel/preset-typescript": "^7.16.7",
     "@okta/babel-plugin-handlebars-inline-precompile": "3.1.0-beta.4200.gf3d0a27",
     "@okta/courage": "4.5.0-5925-g2fcb134",
     "@okta/eslint-plugin-okta-ui": "0.1.0-beta.4181.g1f38f27",
+    "@types/backbone": "^1.4.15",
+    "@types/underscore": "^1.11.4",
     "copy-webpack-plugin": "4.6.0",
     "ts-loader": "^9.2.6",
     "typescript": "^4.6.2",

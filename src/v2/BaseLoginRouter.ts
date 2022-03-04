@@ -14,7 +14,9 @@
 // BaseLoginRouter contains the more complicated router logic - rendering/
 // transition, etc. Most router changes should happen in LoginRouter (which is
 // responsible for adding new routes)
-import { _, $, Backbone, Router, loc } from 'okta';
+import Okta from 'okta';
+const { _, $, Backbone, Router, loc } = Okta;
+// import { _, $, Backbone, Router, loc } from 'okta';
 import Settings from 'models/Settings';
 import Bundles from 'util/Bundles';
 import BrowserFeatures from 'util/BrowserFeatures';
@@ -144,7 +146,7 @@ export default Router.extend({
     await this.appState.setIonResponse(ionResponse, this.hooks);
   },
 
-  handleIdxResponseFailure(error = {}) {
+  handleIdxResponseFailure(error = { details: undefined }) {
     // IDX errors will not call the global error handler
     error = formatError(error);
     this.handleUpdateAppState(error.details);

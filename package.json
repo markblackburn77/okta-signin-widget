@@ -17,20 +17,6 @@
     "not ie <= 9"
   ],
   "main": "./target/js/okta-sign-in.js",
-  "tsd": {
-    "directory": "types",
-    "compilerOptions": {
-      "skipLibCheck": true,
-      "lib": [
-        "dom"
-      ],
-      "paths": {
-        "@okta/okta-signin-widget": [
-          "."
-        ]
-      }
-    }
-  },
   "types": "./types/index.d.ts",
   "scripts": {
     "clean": "rimraf target && rimraf dist && rimraf build2",

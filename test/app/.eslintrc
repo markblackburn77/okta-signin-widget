@@ -1,17 +1,10 @@
 {
   "extends": [
-    "eslint:recommended",
-    "plugin:jasmine/recommended"
+    "eslint:recommended"
   ],
   "plugins": [
-    "jasmine",
-    "webdriverio",
     "@typescript-eslint"
   ],
-  "env": {
-    "webdriverio/wdio": true,
-    "jasmine": true
-  },
   "rules": {
     "@typescript-eslint/explicit-module-boundary-types": 0
   },

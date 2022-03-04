@@ -72,92 +72,115 @@ const Form = BaseForm.extend({
   }
 });
 
-const Okta = {
-  Backbone: Backbone,
+const loc = StringUtil.localize;
+const createButton = ButtonFactory.create;
+const createCallout = Callout.create;
+const registerInput = InputRegistry.register;
+const Collection = BaseCollection;
+const View = BaseView;
+const Router = BaseRouter;
+const Controller = BaseController;
 
-  $: $,
+export interface Internal {
+  util: any;
+  views: {
+    components: any;
+    forms: {
+      helpers: any;
+      components: any;
+      inputs: any;
+    }
+  },
+  models: any;
+}
+const internal: Internal = {
+  util: {
+    Util,
+    Cookie,
+    Clipboard,
+    Logger,
+    Class,
+    Keys,
+  },
 
-  _: _,
-
-  Handlebars: Handlebars,
-
-  loc: StringUtil.localize,
-
-  createButton: ButtonFactory.create,
-
-  createCallout: Callout.create,
-
-  registerInput: InputRegistry.register,
-
-  Model: Model,
-
-  // TODO: BaseModel has been deprecated and shall not be public
-  // remove this once clean up usage in widget.
-  BaseModel: BaseModel,
-
-  Collection: BaseCollection,
-
-  FrameworkView: FrameworkView,
-
-  View: BaseView,
-
-  ListView: ListView,
-
-  Router: BaseRouter,
-
-  Controller: BaseController,
-
-  Form,
-
-  internal: {
-    util: {
-      Util,
-      Cookie,
-      Clipboard,
-      Logger,
-      Class,
-      Keys,
+  views: {
+    components: {
+      BaseDropDown,
+      Notification,
     },
 
-    views: {
+    forms: {
+      helpers: {
+        FormUtil,
+        SchemaFormFactory,
+      },
+
       components: {
-        BaseDropDown,
-        Notification,
+        Toolbar,
       },
 
-      forms: {
-        helpers: {
-          FormUtil,
-          SchemaFormFactory,
-        },
-
-        components: {
-          Toolbar,
-        },
-
-        inputs: {
-          TextBox: TextBoxForSigninWidget,
-          PasswordBox: PasswordBoxForSigninWidget,
-          CheckBox,
-          Radio,
-          Select,
-          InputGroup,
-        },
+      inputs: {
+        TextBox: TextBoxForSigninWidget,
+        PasswordBox: PasswordBoxForSigninWidget,
+        CheckBox,
+        Radio,
+        Select,
+        InputGroup,
       },
     },
+  },
 
-    models: {
-      BaseSchema,
-      SchemaProperty,
-    },
+  models: {
+    BaseSchema,
+    SchemaProperty,
   },
 };
 
-Okta.registerInput('text', TextBoxForSigninWidget);
-Okta.registerInput('password', PasswordBoxForSigninWidget);
-Okta.registerInput('checkbox', CheckBox);
-Okta.registerInput('radio', Radio);
-Okta.registerInput('select', Select);
-Okta.registerInput('group', InputGroup);
+registerInput('text', TextBoxForSigninWidget);
+registerInput('password', PasswordBoxForSigninWidget);
+registerInput('checkbox', CheckBox);
+registerInput('radio', Radio);
+registerInput('select', Select);
+registerInput('group', InputGroup);
 
-export default Okta;
+export {
+  Backbone,
+
+  $,
+
+  _,
+
+  Handlebars,
+
+  loc,
+
+  createButton,
+
+  createCallout,
+
+  registerInput,
+
+  Model,
+
+  // TODO: BaseModel has been deprecated and shall not be public
+  // remove this once clean up usage in widget.
+  BaseModel,
+
+  Collection,
+
+  FrameworkView,
+
+  View,
+
+  ListView,
+
+  Router,
+
+  Controller,
+
+  Form,
+
+  internal,
+};
+
+// Aaron was here

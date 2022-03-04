@@ -3,7 +3,7 @@
     "noEmit": true,
     "rootDir": ".",
     "baseUrl": "./src",
-    "outDir": "./target/types",
+    "outDir": "./types/generated",
     "sourceMap": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
@@ -12,18 +12,15 @@
     "checkJs": false,
     "paths": {
       "nls/*": ["../packages/@okta/i18n/src/json/*"],
-      "okta": ["../packages/@okta/courage-dist/okta.js"]
+      "okta": ["../packages/@okta/courage-dist/"],
+      "@okta/courage/src/*": ["../packages/@okta/courage-dist/types/@okta/courage/*"]
     }
   },
   "include": [
-    "types/**/*",
+    "types/global*",
     "src/**/*"
   ],
-  "exclude": [
-    "types/index.test-d.ts",
-    "types/index.d.ts"
-  ],
   "files": [
-    "src/widget/OktaSignIn.ts"
+    "src/index.ts"
   ]
 }

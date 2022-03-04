@@ -22,7 +22,7 @@ const {
   WIDGET_TEST_SERVER,
   WIDGET_SPA_CLIENT_ID,
 } = process.env;
-let config = {
+const config = {
   baseUrl: WIDGET_TEST_SERVER,
   redirectUri: 'http://localhost:3000/done',
   el: '#okta-login-container',
@@ -67,7 +67,7 @@ Given(
 Given(
   /^state parameter is set in the widget config$/,
   async function(this: ActionContext) {
-    let config = {
+    const config = {
       baseUrl: WIDGET_TEST_SERVER,
       redirectUri: 'http://localhost:3000/done',
       el: '#okta-login-container',

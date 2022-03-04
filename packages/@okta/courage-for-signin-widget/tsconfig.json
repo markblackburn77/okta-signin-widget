@@ -9,6 +9,7 @@
     "allowSyntheticDefaultImports": true,
     "allowJs": true,
     "checkJs": false,
+    "skipLibCheck": true,
     "paths": {
       "vendor/*": ["node_modules/@okta/courage/src/vendor/*"],
       "ConfirmationDialog": ["buildtools/ConfirmationDialog.ts"],
@@ -22,5 +23,6 @@
   ],
   "files": [
     "src/CourageForSigninWidget.ts"
-  ]
+  ],
+  "types": []
 }
