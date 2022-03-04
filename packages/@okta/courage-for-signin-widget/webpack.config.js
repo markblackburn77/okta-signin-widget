@@ -48,7 +48,7 @@ const babelOptions = {
   }
 };
 
-// TODO: automate this list
+// TODO: automate this list? include maps?
 const exportCourageTypes = [
   'framework/View',
   'views/forms/BaseInput',
@@ -59,7 +59,7 @@ const exportCourageTypes = [
   'util/underscore-wrapper',
   'views/Backbone.ListView'
 ];
-const EXPORT_COURAGE_TYPES_GLOB = `{${exportCourageTypes.join(',')}}.*`;
+const EXPORT_COURAGE_TYPES_GLOB = `{${exportCourageTypes.join(',')}}.d.ts`; 
 
 const webpackConfig = {
   mode: 'development',

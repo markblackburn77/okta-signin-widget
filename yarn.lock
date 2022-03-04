@@ -3309,6 +3309,13 @@
   dependencies:
     "@types/sizzle" "*"
 
+"@types/jqueryui@^1.12.16":
+  version "1.12.16"
+  resolved "https://registry.yarnpkg.com/@types/jqueryui/-/jqueryui-1.12.16.tgz#9e319f7db39490db950cba77fe83887e0ad3e1d9"
+  integrity sha512-6huAQDpNlso9ayaUT9amBOA3kj02OCeUWs+UvDmbaJmwkHSg/HLsQOoap/D5uveN9ePwl72N45Bl+Frp5xyG1Q==
+  dependencies:
+    "@types/jquery" "*"
+
 "@types/json-schema@*", "@types/json-schema@^7.0.3", "@types/json-schema@^7.0.6":
   version "7.0.7"
   resolved "https://registry.yarnpkg.com/@types/json-schema/-/json-schema-7.0.7.tgz#98a993516c859eb0d5c4c8f098317a9ea68db9ad"
@@ -3466,6 +3473,11 @@
   version "0.12.1"
   resolved "https://registry.yarnpkg.com/@types/retry/-/retry-0.12.1.tgz#d8f1c0d0dc23afad6dc16a9e993a0865774b4065"
   integrity sha512-xoDlM2S4ortawSWORYqsdU+2rxdh4LRW9ytc3zmT37RIKQh6IHyKwwtKhKis9ah8ol07DCkZxPt8BBvPjC6v4g==
+
+"@types/selectize@^0.12.35":
+  version "0.12.35"
+  resolved "https://registry.yarnpkg.com/@types/selectize/-/selectize-0.12.35.tgz#61cc9353f21e09b267a5a8b133cf819706562d39"
+  integrity sha512-OtutSd9mfyl2qjxNABguUGhwRmHcJRYqRNQEUVBC6QIw0P0DKbhsAF5RUhid1L0GdYGNef8l73kSB1KVpazXqA==
 
 "@types/selenium-standalone@^7.0.0":
   version "7.0.1"
