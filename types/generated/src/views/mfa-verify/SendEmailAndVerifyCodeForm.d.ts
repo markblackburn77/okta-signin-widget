@@ -1,2 +1,0 @@
-export default SendEmailAndVerifyCodeFormVerifyEmailCodeForm;
-declare const SendEmailAndVerifyCodeFormVerifyEmailCodeForm: any;
