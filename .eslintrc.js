@@ -8,6 +8,9 @@ module.exports = {
     'sourceType': 'module',
     'ecmaVersion': 2017
   },
+  'plugins': [
+    '@typescript-eslint'
+  ],
   'overrides': [
     {
       // temporarily ignoring files that violate the @okta/okta/no-exclusive-language rule
@@ -108,12 +111,21 @@ module.exports = {
       },
     },
     {
-      files: ['**/*/ts'],
+      files: ['**/*.ts'],
       parser: '@typescript-eslint/parser',
+      parserOptions: {
+        ecmaVersion: 2020
+      },
       extends: [
         'plugin:@typescript-eslint/eslint-recommended',
         'plugin:@typescript-eslint/recommended',
-      ]
+      ],
+      rules: {
+        // TODO: enable these rules
+        '@typescript-eslint/no-explicit-any': 0,
+        '@typescript-eslint/no-empty-function': 0,
+        '@typescript-eslint/explicit-module-boundary-types': 0
+      }
     }
   ],
 };

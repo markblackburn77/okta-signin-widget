@@ -13,18 +13,21 @@ export interface RouterEventsAPI {
   off(event?: 'afterError', callback?: EventCallbackWithError): void;
   off(event?: 'afterRender', callback?: EventCallback): void;
 }
+
+export type RenderSuccessCallback = (res: RenderResult) => void;
+export type RenderErrorCallback = (err: RenderError) => void;
 export interface OktaSignInAPI extends HooksAPI, RouterEventsAPI {
   authClient: OktaAuth;
   show(): void;
   hide(): void;
   remove(): void;
-  showSignIn(options): Promise<unknown>;
-  showSignInToGetTokens(options: ShowSignInToGetTokensOptions): Promise<Tokens>;
-  showSignInAndRedirect(options: ShowSignInAndRedirectOptions): Promise<void>;
+  showSignIn(options): Promise<RenderResult>;
+  showSignInToGetTokens(options: RenderOptions): Promise<Tokens>;
+  showSignInAndRedirect(options: RenderOptions): Promise<void>;
   renderEl(
-    options: RenderElOptions,
-    success?: (res: RenderResult) => void,
-    error?: (err: RenderError) => void
+    options: RenderOptions,
+    success?: RenderSuccessCallback,
+    error?: RenderErrorCallback
   ): Promise<RenderResult>;
 
   getUser(): void
@@ -66,19 +69,11 @@ type Scope =
   'phone';
 
 // Render options
-export interface ShowSignInToGetTokensOptions {
+export interface RenderOptions {
   el?: string;
   clientId?: string;
   redirectUri?: string;
   scopes?: Array<Scope>;
-}
-export interface ShowSignInAndRedirectOptions {
-  el?: string;
-  clientId?: string;
-  redirectUri?: string;
-}
-export interface RenderElOptions {
-  el?: string;
 }
 
 // Render result

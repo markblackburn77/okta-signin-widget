@@ -48,7 +48,7 @@ export default Router.extend({
     // Create a default success and/or error handler if
     // one is not provided.
     if (!options.globalSuccessFn) {
-      options.globalSuccessFn = function() { };
+      options.globalSuccessFn = function() { /* dummy function */ };
     }
     if (!options.globalErrorFn) {
       options.globalErrorFn = function(err) {

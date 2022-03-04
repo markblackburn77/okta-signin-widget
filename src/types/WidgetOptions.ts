@@ -1,12 +1,12 @@
 // Minimum TypeScript Version: 3.8
 
-import { OktaAuth, OktaAuthOptions, Tokens } from '@okta/okta-auth-js';
+import { OktaAuth, OktaAuthOptions } from '@okta/okta-auth-js';
 import {
   SimpleCallback,
   RenderResult,
   RenderError
 } from './api';
-import { Registration } from './registration';
+import * as Registration from './registration';
 
 
 export type HookFunction = () => Promise<void>;
@@ -161,27 +161,27 @@ export interface WidgetOptions {
 
   type LanguageCallback = (supportedLanguages: Array<LanguageCode>, userLanguages: Array<string>) => LanguageCode;
 
-  type ColorKey = 'brand';
+  export type ColorKey = 'brand';
 
-  type LinkTarget =
+  export type LinkTarget =
     '_blank' |
     '_self' |
     '_parent' |
     '_top';
-  interface Link {
+  export interface Link {
     text: string;
     href: string;
     target?: LinkTarget;
   }
 
-  interface CustomButton {
+  export interface CustomButton {
     click: SimpleCallback;
     title?: string;
     i18nKey?: string;
     className?: string;
   }
 
-  interface FieldError {
+  export interface FieldError {
     errorSummary: string;
     reason?: string;
     location?: string;
@@ -189,7 +189,7 @@ export interface WidgetOptions {
     domain?: string;
   }
 
-  interface Error {
+  export interface Error {
     errorSummary: string;
     errorCode?: string;
     errorId?: string;
@@ -197,7 +197,7 @@ export interface WidgetOptions {
     errorCauses?: Array<FieldError>;
   }
 
-  type Feature =
+  export type Feature =
     'router' |
     'securityImage' |
     'rememberMe' |
@@ -223,23 +223,23 @@ export interface WidgetOptions {
     'mfaOnlyFlow';
 
   // Events
-  type Event =
+  export type Event =
     'ready' |
     'afterError' |
     'afterRender';
-  interface EventContext {
+  export interface EventContext {
     controller: string;
   }
-  interface EventData {
+  export interface EventData {
     page: string;
   }
-  interface EventError {
+  export interface EventError {
     name: string;
     message: string;
     statusCode?: number;
     xhr?: ErrorXHR;
   }
-  interface ErrorXHR {
+  export interface ErrorXHR {
     status: number;
     responseType: 'json';
     responseText: string;

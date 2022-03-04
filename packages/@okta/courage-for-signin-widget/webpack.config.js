@@ -48,9 +48,16 @@ const babelOptions = {
   }
 };
 
+// TODO: automate this list
 const exportCourageTypes = [
   'framework/View',
   'views/forms/BaseInput',
+  'models/BaseModel',
+  'models/Model',
+  'util/handlebars-wrapper',
+  'util/jquery-wrapper',
+  'util/underscore-wrapper',
+  'views/Backbone.ListView'
 ];
 const EXPORT_COURAGE_TYPES_GLOB = `{${exportCourageTypes.join(',')}}.*`;
 

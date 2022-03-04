@@ -33,6 +33,7 @@ const config = {
 
 Given(
   /^an App configured to use interaction code flow$/,
+  // eslint-disable-next-line no-unused-vars
   async function(this: ActionContext) {
     // eslint-disable-next-line max-len
     console.log(JSON.stringify(config)); // for manual testing in browser
@@ -66,6 +67,7 @@ Given(
 
 Given(
   /^state parameter is set in the widget config$/,
+  // eslint-disable-next-line no-unused-vars
   async function(this: ActionContext) {
     const config = {
       baseUrl: WIDGET_TEST_SERVER,

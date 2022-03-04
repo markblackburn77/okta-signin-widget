@@ -1,4 +1,4 @@
-import _ from 'underscore';
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Errors from 'util/Errors';
 import Util from 'util/Util';
 import Logger from 'util/Logger';
@@ -10,9 +10,15 @@ import V2Router from 'v2/WidgetRouter';
 import Hooks from 'models/Hooks';
 import {
   WidgetOptions,
-  OktaSignInAPI
+  OktaSignInAPI,
+  RenderSuccessCallback,
+  RenderErrorCallback,
+  RenderResult,
+  RenderOptions,
+  HookFunction,
+  RenderResultSuccess
 } from '../types';
-import { OktaAuth } from '@okta/okta-auth-js';
+import { OktaAuth, Tokens } from '@okta/okta-auth-js';
 
 declare type AbstractRouter = typeof V1Router | typeof V2Router;
 
@@ -47,7 +53,7 @@ class OktaSignIn implements OktaSignInAPI {
       hooks: options.hooks
     });
 
-    var Router: AbstractRouter;
+    let Router: AbstractRouter;
     if ((options.stateToken && !Util.isV1StateToken(options.stateToken)) 
         // Self hosted widget can use `useInteractionCodeFlow` to use V2Router
         || options.useInteractionCodeFlow 
@@ -57,7 +63,6 @@ class OktaSignIn implements OktaSignInAPI {
       Router = V1Router;
     }
     this.Router = Router;
-    // _.extend(this, getProperties(authClient, hooks, Router, options));
 
     // Triggers the event up the chain so it is available to the consumers of the widget.
     this.listenTo(Router.prototype, 'all', this.trigger);
@@ -75,7 +80,7 @@ class OktaSignIn implements OktaSignInAPI {
    * @param success - success callback function
    * @param error - error callback function
    */
-  renderEl(renderOptions, successFn?, errorFn?) {
+  renderEl(renderOptions: RenderOptions, successFn?: RenderSuccessCallback, errorFn?: RenderErrorCallback): Promise<RenderResult> {
     if (this.router) {
       throw new Error('An instance of the widget has already been rendered. Call remove() first.');
     }
@@ -86,19 +91,19 @@ class OktaSignIn implements OktaSignInAPI {
   }
 
   
-  hide() {
+  hide(): void {
     if (this.router) {
       this.router.hide();
     }
   }
 
-  show() {
+  show(): void {
     if (this.router) {
       this.router.show();
     }
   }
 
-  remove() {
+  remove(): void {
     if (this.router) {
       this.router.remove();
       this.router = undefined;
@@ -109,12 +114,12 @@ class OktaSignIn implements OktaSignInAPI {
    * Renders the Widget and returns a promise that resolves to OAuth tokens
    * @param options - options for the signin widget
    */
-  showSignInToGetTokens(options = {}) {
+  showSignInToGetTokens(options?: RenderOptions): Promise<Tokens> {
     const renderOptions = Object.assign(buildRenderOptions(this.options, options), {
       redirect: 'never'
     });
     const promise = this.renderEl(renderOptions).then(res => {
-      return res.tokens;
+      return (res as RenderResultSuccess).tokens;
     });
     const authClient = this.router.settings.getAuthClient();
     if (authClient.isAuthorizationCodeFlow() && !authClient.isPKCE()) {
@@ -128,24 +133,27 @@ class OktaSignIn implements OktaSignInAPI {
    * Renders the widget and redirects to the OAuth callback
    * @param options - options for the signin widget
    */
-  showSignInAndRedirect(options = {}) {
+  showSignInAndRedirect(options?: RenderOptions): Promise<void> {
     const renderOptions = Object.assign(buildRenderOptions(this.options, options), {
       redirect: 'always'
     });
-    return this.renderEl(renderOptions);
+    return this.renderEl(renderOptions).then(() => {
+      // This method should never return, it will either redirect or reject with error
+      return;
+    });
   }
 
   /**
    * Renders the widget. Either resolves the returned promise, or redirects.
    * @param options - options for the signin widget
    */
-  showSignIn(options = {}) {
+  showSignIn(options?: RenderOptions): Promise<RenderResult> {
     const renderOptions = Object.assign(buildRenderOptions(this.options, options));
     return this.renderEl(renderOptions);
   }
 
   // Hook convenience functions
-  before(formName, callbackFn) {
+  before(formName: string, callbackFn: HookFunction): void {
     this.hooks.mergeHook(formName, {
       before: [
         callbackFn
@@ -153,7 +161,7 @@ class OktaSignIn implements OktaSignInAPI {
     });
   }
 
-  after(formName, callbackFn) {
+  after(formName: string, callbackFn: HookFunction): void {
     this.hooks.mergeHook(formName, {
       after: [
         callbackFn
@@ -161,13 +169,13 @@ class OktaSignIn implements OktaSignInAPI {
     });
   }
 
-  getUser() {
+  getUser(): any {
     return this.router?.appState?.getUser();
   }
   
   // Events API
 
-  on(...args) {
+  on(...args: any[]): void {
     // custom events listener on widget instance to trap third-party callback errors
     const [event, callback] = args;
     if (EVENTS_LIST.includes(event)) {
@@ -182,23 +190,23 @@ class OktaSignIn implements OktaSignInAPI {
     this.Router.prototype.Events.on.apply(this, args);
   }
 
-  off(...args) {
+  off(...args: any[]): void {
     this.Router.prototype.Events.off.apply(this, args);
   }
 
-  once(...args) {
+  once(...args: any[]): void {
     this.Router.prototype.Events.once.apply(this, args);
   }
 
-  stopListening(...args) {
+  stopListening(...args: any[]): void {
     this.Router.prototype.Events.stopListening.apply(this, args);
   }
 
-  listenTo(...args) {
+  listenTo(...args: any[]): void {
     this.Router.prototype.Events.listenTo.apply(this, args);
   }
 
-  trigger(...args) {
+  trigger(...args: any[]): void {
     this.Router.prototype.Events.trigger.apply(this, args);
   }
 }

@@ -23,10 +23,11 @@ declare namespace OktaCourage {
 }
 
 
-declare var okta: OktaCourage.okta;
-declare var define: (fn: Function) => {};
+declare const okta: OktaCourage.okta;
+declare const define: (fn: (...args:any[]) => any) => any;
 
 interface Window {
   jQueryCourage?: JQueryStatic;
   _features?: string[];
+  okta?: OktaCourage.okta;
 }

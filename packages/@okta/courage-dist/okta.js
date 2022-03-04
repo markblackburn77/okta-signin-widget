@@ -11112,10 +11112,10 @@ function validateInput(options, model) {
   if (_util_underscore_wrapper__WEBPACK_IMPORTED_MODULE_0__.default.size(intersection) !== _util_underscore_wrapper__WEBPACK_IMPORTED_MODULE_0__.default.size(options)) {
     var fields = _util_underscore_wrapper__WEBPACK_IMPORTED_MODULE_0__.default.clone(ALL_OPTIONS); // TODO: investigate possible bug here. keys is an array.
     // @ts-ignore
+    // fields.unshift(keys);
 
 
-    fields.unshift(keys);
-    _util_Logger__WEBPACK_IMPORTED_MODULE_2__.default.warn('Invalid input parameters', _util_underscore_wrapper__WEBPACK_IMPORTED_MODULE_0__.default.without.apply(null, fields), options);
+    _util_Logger__WEBPACK_IMPORTED_MODULE_2__.default.warn('Invalid input parameters', _util_underscore_wrapper__WEBPACK_IMPORTED_MODULE_0__.default.without(keys, ...fields), options);
   }
 }
 
@@ -13924,10 +13924,11 @@ function fixChosenModal($select, textPlaceholder) {
 
     if (params && params.aria && params.aria.label) {
       this.$('input[type=text]').attr('id', txtBoxId).attr('aria-label', params.aria.label);
+    } else {
+      this.$('input[type=text]').attr('id', txtBoxId).attr('aria-label', this.$el.parent().prev('.o-form-label').find('label').text());
     }
 
     this.$('.chzn-results .active-result').attr('role', 'option');
-    this.$el.parents('.o-form-fieldset').find('label').attr('for', txtBoxId);
   }
 }));
 
