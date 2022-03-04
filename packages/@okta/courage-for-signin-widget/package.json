@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Generates a version of Courage for Sign-In Widget",
   "main": "src/CourageForSigninWidget.js",
-  "type": "module",
   "scripts": {
     "prebuild": "yarn clean:types && yarn build:types",
     "build": "webpack",
