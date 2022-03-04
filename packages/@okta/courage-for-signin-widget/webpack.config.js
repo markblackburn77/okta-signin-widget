@@ -53,7 +53,6 @@ const exportCourageTypes = [
   'views/forms/BaseInput',
 ];
 const EXPORT_COURAGE_TYPES_GLOB = `{${exportCourageTypes.join(',')}}.*`;
-console.log('GLOB', EXPORT_COURAGE_TYPES_GLOB);
 
 const webpackConfig = {
   mode: 'development',
@@ -65,13 +64,9 @@ const webpackConfig = {
     // node_modules at root directory.
     path: PUBLISH_DIR,
     filename: `${DIST_FILE_NAME}.js`,
-    libraryTarget: 'commonjs2',
-    module: false
+    libraryTarget: 'commonjs2'
   },
-  experiments: {
-    outputModule: true
-  },
- externals: EXTERNAL_PATHS,
+  externals: EXTERNAL_PATHS,
   resolve: {
     extensions: ['.js', '.ts'],
     alias: {
@@ -140,7 +135,7 @@ const webpackConfig = {
         to: `${I18N_DIR}/dist/properties/`,
       },
       {
-        context: `${COURAGE_DIST}/types/src`,
+        context: `${NODE_MODULES_SRC}/courage/types/generated/src`,
         from: EXPORT_COURAGE_TYPES_GLOB,
         to: `${PUBLISH_DIR}/types/@okta/courage`,
       }
